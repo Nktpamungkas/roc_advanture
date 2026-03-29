@@ -6,9 +6,25 @@ final class ReturnConditions
 {
     public const GOOD = 'good';
 
-    public const DIRTY = 'dirty';
-
     public const DAMAGED = 'damaged';
 
-    public const LOST = 'lost';
+    /**
+     * @return list<string>
+     */
+    public static function all(): array
+    {
+        return [
+            self::GOOD,
+            self::DAMAGED,
+        ];
+    }
+
+    public static function label(string $condition): string
+    {
+        return match ($condition) {
+            self::GOOD => 'Kondisi Baik',
+            self::DAMAGED => 'Butuh Perhatian',
+            default => $condition,
+        };
+    }
 }

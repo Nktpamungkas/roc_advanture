@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, CalendarDays, LayoutGrid, Package, Users } from 'lucide-react';
+import { Archive, CalendarDays, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -19,6 +19,16 @@ export function AppSidebar() {
         },
         ...(canManageUsers
             ? [
+                  {
+                      title: 'Penyewaan',
+                      url: route('admin.rentals.index'),
+                      icon: FileText,
+                  },
+                  {
+                      title: 'Pengembalian',
+                      url: route('admin.returns.index'),
+                      icon: RotateCcw,
+                  },
                   {
                       title: 'Produk',
                       url: route('admin.products.index'),
