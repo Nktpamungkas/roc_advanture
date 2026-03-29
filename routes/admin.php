@@ -7,7 +7,10 @@ use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\RentalController;
 use App\Http\Controllers\Admin\RentalReturnController;
+use App\Http\Controllers\Admin\SaleController;
+use App\Http\Controllers\Admin\SaleProductController;
 use App\Http\Controllers\Admin\SeasonRuleController;
+use App\Http\Controllers\Admin\StockReceiptController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\WashingController;
 use Illuminate\Support\Facades\Route;
@@ -19,6 +22,10 @@ Route::middleware(['auth'])
         Route::get('products', [ProductController::class, 'index'])->name('products.index');
         Route::post('products', [ProductController::class, 'store'])->name('products.store');
         Route::patch('products/{product}', [ProductController::class, 'update'])->name('products.update');
+
+        Route::get('sale-products', [SaleProductController::class, 'index'])->name('sale-products.index');
+        Route::post('sale-products', [SaleProductController::class, 'store'])->name('sale-products.store');
+        Route::patch('sale-products/{saleProduct}', [SaleProductController::class, 'update'])->name('sale-products.update');
 
         Route::get('inventory-units', [InventoryUnitController::class, 'index'])->name('inventory-units.index');
         Route::post('inventory-units', [InventoryUnitController::class, 'store'])->name('inventory-units.store');
@@ -42,9 +49,15 @@ Route::middleware(['auth'])
         Route::get('rentals', [RentalController::class, 'index'])->name('rentals.index');
         Route::post('rentals', [RentalController::class, 'store'])->name('rentals.store');
         Route::get('rentals/{rental}', [RentalController::class, 'show'])->name('rentals.show');
+        Route::get('stock-receipts', [StockReceiptController::class, 'index'])->name('stock-receipts.index');
+        Route::post('stock-receipts', [StockReceiptController::class, 'store'])->name('stock-receipts.store');
+        Route::get('sales', [SaleController::class, 'index'])->name('sales.index');
+        Route::post('sales', [SaleController::class, 'store'])->name('sales.store');
+        Route::get('sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
         Route::get('returns', [RentalReturnController::class, 'index'])->name('returns.index');
         Route::post('returns', [RentalReturnController::class, 'store'])->name('returns.store');
         Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
+        Route::get('reports/export/{report}', [ReportController::class, 'export'])->name('reports.export');
 
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('users', [UserController::class, 'store'])->name('users.store');

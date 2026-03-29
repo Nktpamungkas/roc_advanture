@@ -39,4 +39,9 @@ class PaymentMethodConfig extends Model
     {
         return $this->hasMany(Payment::class);
     }
+
+    public function sales(): HasMany
+    {
+        return $this->hasMany(Sale::class);
+    }
 }

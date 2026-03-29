@@ -7,7 +7,11 @@ use App\Models\InventoryUnit;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Rental;
+use App\Models\RentalItem;
+use App\Models\RentalReturn;
+use App\Models\ReturnItem;
 use App\Services\AdminAccessService;
+use App\Support\Rental\CompensationTypes;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentKinds;
 use App\Support\Rental\PaymentMethods;
@@ -18,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportController extends Controller
 {
@@ -110,6 +115,78 @@ class ReportController extends Controller
         $paymentMetrics = (clone $paymentQuery)->get();
         $recentPayments = $paymentMetrics->take(10)->values();
 
+        $returnQuery = RentalReturn::query()
+            ->with(['rental.customer:id,name,phone_whatsapp', 'checker:id,name'])
+            ->whereBetween('returned_at', [$dateFrom, $dateTo])
+            ->when($filters['search'] !== '', function ($query) use ($filters): void {
+                $query->whereHas('rental', function ($rentalQuery) use ($filters): void {
+                    $rentalQuery
+                        ->where('rental_no', 'like', '%'.$filters['search'].'%')
+                        ->orWhereHas('customer', function ($customerQuery) use ($filters): void {
+                            $customerQuery
+                                ->where('name', 'like', '%'.$filters['search'].'%')
+                                ->orWhere('phone_whatsapp', 'like', '%'.$filters['search'].'%');
+                        });
+                });
+            })
+            ->latest('returned_at');
+
+        $returnMetrics = (clone $returnQuery)->get();
+
+        $damageQuery = ReturnItem::query()
+            ->with([
+                'returnRecord.rental.customer:id,name,phone_whatsapp',
+                'rentalItem.inventoryUnit:id,unit_code',
+            ])
+            ->whereHas('returnRecord', fn ($query) => $query->whereBetween('returned_at', [$dateFrom, $dateTo]))
+            ->where(function ($query): void {
+                $query
+                    ->where('compensation_type', '!=', CompensationTypes::NONE)
+                    ->orWhereIn('next_unit_status', [
+                        InventoryUnitStatuses::MAINTENANCE,
+                        InventoryUnitStatuses::RETIRED,
+                    ]);
+            })
+            ->when($filters['search'] !== '', function ($query) use ($filters): void {
+                $query->where(function ($nestedQuery) use ($filters): void {
+                    $nestedQuery
+                        ->where('notes', 'like', '%'.$filters['search'].'%')
+                        ->orWhereHas('returnRecord.rental', function ($rentalQuery) use ($filters): void {
+                            $rentalQuery
+                                ->where('rental_no', 'like', '%'.$filters['search'].'%')
+                                ->orWhereHas('customer', function ($customerQuery) use ($filters): void {
+                                    $customerQuery
+                                        ->where('name', 'like', '%'.$filters['search'].'%')
+                                        ->orWhere('phone_whatsapp', 'like', '%'.$filters['search'].'%');
+                                });
+                        })
+                        ->orWhereHas('rentalItem', function ($rentalItemQuery) use ($filters): void {
+                            $rentalItemQuery->where('product_name_snapshot', 'like', '%'.$filters['search'].'%');
+                        });
+                });
+            })
+            ->latest('id');
+
+        $damageMetrics = (clone $damageQuery)->get();
+
+        $topProducts = RentalItem::query()
+            ->whereHas('rental', fn ($query) => $query->whereBetween('starts_at', [$dateFrom, $dateTo]))
+            ->get(['rental_id', 'product_name_snapshot', 'days', 'line_total'])
+            ->groupBy('product_name_snapshot')
+            ->map(function (Collection $items, string $productName) {
+                $rentalCount = $items->pluck('rental_id')->unique()->count();
+
+                return [
+                    'product_name' => $productName,
+                    'rentals_count' => $rentalCount,
+                    'units_rented_count' => $items->count(),
+                    'days_total' => $items->sum('days'),
+                    'revenue_total' => (float) $items->sum('line_total'),
+                ];
+            })
+            ->sortByDesc('revenue_total')
+            ->values();
+
         $stockProducts = Product::query()
             ->withCount([
                 'inventoryUnits as total_units_count',
@@ -134,6 +211,12 @@ class ReportController extends Controller
                 ['value' => 'tomorrow', 'label' => 'Jatuh Tempo Besok'],
                 ['value' => 'overdue', 'label' => 'Sudah Terlambat'],
                 ['value' => 'next_7_days', 'label' => '7 Hari Ke Depan'],
+            ],
+            'exportTargets' => [
+                ['value' => 'rentals', 'label' => 'Penyewaan'],
+                ['value' => 'returns', 'label' => 'Pengembalian'],
+                ['value' => 'damages', 'label' => 'Kerusakan & Ganti Rugi'],
+                ['value' => 'top-products', 'label' => 'Produk Paling Laku'],
             ],
             'reportSummary' => [
                 'rentals_in_period' => $paginatedRentals->total(),
@@ -226,7 +309,88 @@ class ReportController extends Controller
                     'notes' => $payment->notes,
                 ])
                 ->values(),
+            'returnSummary' => [
+                'returned_count' => $returnMetrics->count(),
+                'settlement_total' => $returnMetrics->sum(fn (RentalReturn $return) => (float) $return->settlement_amount),
+                'contract_basis_count' => $returnMetrics->where('charge_basis', 'contract')->count(),
+                'actual_basis_count' => $returnMetrics->where('charge_basis', 'actual')->count(),
+            ],
+            'returnItems' => $returnMetrics
+                ->take(10)
+                ->map(fn (RentalReturn $return) => [
+                    'id' => $return->id,
+                    'rental_id' => $return->rental_id,
+                    'rental_no' => $return->rental?->rental_no,
+                    'customer_name' => $return->rental?->customer?->name,
+                    'returned_at' => $return->returned_at?->toIso8601String(),
+                    'final_total_days' => $return->final_total_days,
+                    'final_subtotal' => (string) $return->final_subtotal,
+                    'settlement_amount' => (string) $return->settlement_amount,
+                    'charge_basis_label' => $return->charge_basis === 'actual' ? 'Aktual Kembali' : 'Sesuai Kontrak',
+                    'checker_name' => $return->checker?->name,
+                    'notes' => $return->notes,
+                ])
+                ->values(),
+            'damageSummary' => [
+                'cases_count' => $damageMetrics->count(),
+                'replacement_count' => $damageMetrics->where('compensation_type', CompensationTypes::REPLACE_WITH_NEW_UNIT)->count(),
+                'cash_compensation_count' => $damageMetrics->where('compensation_type', CompensationTypes::CASH_COMPENSATION)->count(),
+                'total_compensation' => $damageMetrics->sum(fn (ReturnItem $returnItem) => (float) $returnItem->compensation_amount),
+            ],
+            'damageItems' => $damageMetrics
+                ->take(10)
+                ->map(fn (ReturnItem $returnItem) => [
+                    'id' => $returnItem->id,
+                    'rental_id' => $returnItem->returnRecord?->rental_id,
+                    'rental_no' => $returnItem->returnRecord?->rental?->rental_no,
+                    'customer_name' => $returnItem->returnRecord?->rental?->customer?->name,
+                    'returned_at' => $returnItem->returnRecord?->returned_at?->toIso8601String(),
+                    'product_name' => $returnItem->rentalItem?->product_name_snapshot,
+                    'unit_code' => $returnItem->rentalItem?->inventoryUnit?->unit_code,
+                    'next_unit_status_label' => $returnItem->next_unit_status !== null ? InventoryUnitStatuses::label($returnItem->next_unit_status) : '-',
+                    'compensation_type_label' => $this->compensationTypeLabel($returnItem->compensation_type),
+                    'compensation_amount' => (string) $returnItem->compensation_amount,
+                    'notes' => $returnItem->notes,
+                ])
+                ->values(),
+            'topProductSummary' => [
+                'total_product_rows' => $topProducts->count(),
+                'top_revenue' => (float) ($topProducts->first()['revenue_total'] ?? 0),
+                'top_product_name' => $topProducts->first()['product_name'] ?? null,
+            ],
+            'topProducts' => $topProducts
+                ->take(10)
+                ->values(),
         ]);
+    }
+
+    public function export(Request $request, string $report): StreamedResponse
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        $filters = $this->resolveFilters($request);
+        $dateFrom = Carbon::parse($filters['date_from'])->startOfDay();
+        $dateTo = Carbon::parse($filters['date_to'])->endOfDay();
+        $format = in_array((string) $request->input('format', 'csv'), ['csv', 'excel'], true)
+            ? (string) $request->input('format', 'csv')
+            : 'csv';
+
+        [$headers, $rows, $filenamePrefix] = match ($report) {
+            'rentals' => $this->buildRentalExportRows($filters, $dateFrom, $dateTo),
+            'returns' => $this->buildReturnExportRows($filters, $dateFrom, $dateTo),
+            'damages' => $this->buildDamageExportRows($filters, $dateFrom, $dateTo),
+            'top-products' => $this->buildTopProductExportRows($dateFrom, $dateTo),
+            default => abort(404),
+        };
+
+        return $this->streamExport(
+            $headers,
+            $rows,
+            sprintf('%s-%s-to-%s.%s', $filenamePrefix, $filters['date_from'], $filters['date_to'], $format === 'csv' ? 'csv' : 'xls'),
+            $format,
+        );
     }
 
     private function resolveFilters(Request $request): array
@@ -234,11 +398,17 @@ class ReportController extends Controller
         $defaultDateFrom = now()->startOfMonth()->toDateString();
         $defaultDateTo = now()->toDateString();
         $dueScope = (string) $request->input('due_scope', 'all');
+        $dateFrom = $this->normalizeDate((string) $request->input('date_from', $defaultDateFrom)) ?? $defaultDateFrom;
+        $dateTo = $this->normalizeDate((string) $request->input('date_to', $defaultDateTo)) ?? $defaultDateTo;
+
+        if ($dateTo < $dateFrom) {
+            $dateTo = $dateFrom;
+        }
 
         return [
             'search' => trim((string) $request->input('search', '')),
-            'date_from' => $this->normalizeDate((string) $request->input('date_from', $defaultDateFrom)) ?? $defaultDateFrom,
-            'date_to' => $this->normalizeDate((string) $request->input('date_to', $defaultDateTo)) ?? $defaultDateTo,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
             'rental_status' => in_array((string) $request->input('rental_status', ''), RentalStatuses::all(), true)
                 ? (string) $request->input('rental_status', '')
                 : '',
@@ -295,6 +465,244 @@ class ReportController extends Controller
             ->values();
     }
 
+    private function buildRentalExportRows(array $filters, Carbon $dateFrom, Carbon $dateTo): array
+    {
+        $rows = Rental::query()
+            ->with(['customer:id,name,phone_whatsapp', 'creator:id,name'])
+            ->withCount('items')
+            ->whereBetween('starts_at', [$dateFrom, $dateTo])
+            ->when($filters['search'] !== '', function ($query) use ($filters): void {
+                $query->where(function ($nestedQuery) use ($filters): void {
+                    $nestedQuery
+                        ->where('rental_no', 'like', '%'.$filters['search'].'%')
+                        ->orWhereHas('customer', function ($customerQuery) use ($filters): void {
+                            $customerQuery
+                                ->where('name', 'like', '%'.$filters['search'].'%')
+                                ->orWhere('phone_whatsapp', 'like', '%'.$filters['search'].'%');
+                        });
+                });
+            })
+            ->when($filters['rental_status'] !== '', fn ($query) => $query->where('rental_status', $filters['rental_status']))
+            ->latest('starts_at')
+            ->get()
+            ->map(fn (Rental $rental) => [
+                $rental->rental_no,
+                $rental->customer?->name ?? '-',
+                $rental->customer?->phone_whatsapp ?? '-',
+                $rental->starts_at?->format('Y-m-d H:i') ?? '-',
+                $rental->due_at?->format('Y-m-d H:i') ?? '-',
+                $rental->items_count,
+                (float) ($rental->final_subtotal ?? $rental->subtotal),
+                (float) $rental->paid_amount,
+                (float) $rental->remaining_amount,
+                RentalPaymentStatuses::label($rental->payment_status),
+                RentalStatuses::label($rental->rental_status),
+                $rental->creator?->name ?? '-',
+            ])
+            ->all();
+
+        return [[
+            'No Rental',
+            'Customer',
+            'No WhatsApp',
+            'Mulai Sewa',
+            'Harus Kembali',
+            'Jumlah Item',
+            'Total',
+            'Dibayar',
+            'Sisa',
+            'Status Bayar',
+            'Status Rental',
+            'Admin',
+        ], $rows, 'laporan-penyewaan'];
+    }
+
+    private function buildReturnExportRows(array $filters, Carbon $dateFrom, Carbon $dateTo): array
+    {
+        $rows = RentalReturn::query()
+            ->with(['rental.customer:id,name,phone_whatsapp', 'checker:id,name'])
+            ->whereBetween('returned_at', [$dateFrom, $dateTo])
+            ->when($filters['search'] !== '', function ($query) use ($filters): void {
+                $query->whereHas('rental', function ($rentalQuery) use ($filters): void {
+                    $rentalQuery
+                        ->where('rental_no', 'like', '%'.$filters['search'].'%')
+                        ->orWhereHas('customer', function ($customerQuery) use ($filters): void {
+                            $customerQuery
+                                ->where('name', 'like', '%'.$filters['search'].'%')
+                                ->orWhere('phone_whatsapp', 'like', '%'.$filters['search'].'%');
+                        });
+                });
+            })
+            ->latest('returned_at')
+            ->get()
+            ->map(fn (RentalReturn $return) => [
+                $return->rental?->rental_no ?? '-',
+                $return->rental?->customer?->name ?? '-',
+                $return->returned_at?->format('Y-m-d H:i') ?? '-',
+                $return->charge_basis === 'actual' ? 'Aktual Kembali' : 'Sesuai Kontrak',
+                $return->final_total_days,
+                (float) $return->final_subtotal,
+                (float) $return->settlement_amount,
+                $return->checker?->name ?? '-',
+                $return->notes ?? '',
+            ])
+            ->all();
+
+        return [[
+            'No Rental',
+            'Customer',
+            'Waktu Kembali',
+            'Basis Tagihan',
+            'Durasi Final',
+            'Subtotal Final',
+            'Pelunasan Saat Return',
+            'Dicek Oleh',
+            'Catatan',
+        ], $rows, 'laporan-pengembalian'];
+    }
+
+    private function buildDamageExportRows(array $filters, Carbon $dateFrom, Carbon $dateTo): array
+    {
+        $rows = ReturnItem::query()
+            ->with([
+                'returnRecord.rental.customer:id,name,phone_whatsapp',
+                'rentalItem.inventoryUnit:id,unit_code',
+            ])
+            ->whereHas('returnRecord', fn ($query) => $query->whereBetween('returned_at', [$dateFrom, $dateTo]))
+            ->where(function ($query): void {
+                $query
+                    ->where('compensation_type', '!=', CompensationTypes::NONE)
+                    ->orWhereIn('next_unit_status', [
+                        InventoryUnitStatuses::MAINTENANCE,
+                        InventoryUnitStatuses::RETIRED,
+                    ]);
+            })
+            ->when($filters['search'] !== '', function ($query) use ($filters): void {
+                $query->where(function ($nestedQuery) use ($filters): void {
+                    $nestedQuery
+                        ->where('notes', 'like', '%'.$filters['search'].'%')
+                        ->orWhereHas('returnRecord.rental', function ($rentalQuery) use ($filters): void {
+                            $rentalQuery
+                                ->where('rental_no', 'like', '%'.$filters['search'].'%')
+                                ->orWhereHas('customer', function ($customerQuery) use ($filters): void {
+                                    $customerQuery
+                                        ->where('name', 'like', '%'.$filters['search'].'%')
+                                        ->orWhere('phone_whatsapp', 'like', '%'.$filters['search'].'%');
+                                });
+                        })
+                        ->orWhereHas('rentalItem', function ($rentalItemQuery) use ($filters): void {
+                            $rentalItemQuery->where('product_name_snapshot', 'like', '%'.$filters['search'].'%');
+                        });
+                });
+            })
+            ->latest('id')
+            ->get()
+            ->map(fn (ReturnItem $returnItem) => [
+                $returnItem->returnRecord?->rental?->rental_no ?? '-',
+                $returnItem->returnRecord?->rental?->customer?->name ?? '-',
+                $returnItem->returnRecord?->returned_at?->format('Y-m-d H:i') ?? '-',
+                $returnItem->rentalItem?->product_name_snapshot ?? '-',
+                $returnItem->rentalItem?->inventoryUnit?->unit_code ?? '-',
+                $this->compensationTypeLabel($returnItem->compensation_type),
+                $returnItem->next_unit_status !== null ? InventoryUnitStatuses::label($returnItem->next_unit_status) : '-',
+                (float) $returnItem->compensation_amount,
+                $returnItem->notes ?? '',
+            ])
+            ->all();
+
+        return [[
+            'No Rental',
+            'Customer',
+            'Waktu Return',
+            'Produk',
+            'Unit',
+            'Jenis Penyelesaian',
+            'Status Unit Berikutnya',
+            'Nominal Ganti Rugi',
+            'Catatan',
+        ], $rows, 'laporan-kerusakan-ganti-rugi'];
+    }
+
+    private function buildTopProductExportRows(Carbon $dateFrom, Carbon $dateTo): array
+    {
+        $rows = RentalItem::query()
+            ->whereHas('rental', fn ($query) => $query->whereBetween('starts_at', [$dateFrom, $dateTo]))
+            ->get(['rental_id', 'product_name_snapshot', 'days', 'line_total'])
+            ->groupBy('product_name_snapshot')
+            ->map(function (Collection $items, string $productName) {
+                return [
+                    $productName,
+                    $items->pluck('rental_id')->unique()->count(),
+                    $items->count(),
+                    $items->sum('days'),
+                    (float) $items->sum('line_total'),
+                ];
+            })
+            ->sortByDesc(fn (array $row) => $row[4])
+            ->values()
+            ->all();
+
+        return [[
+            'Produk',
+            'Total Rental',
+            'Total Unit Keluar',
+            'Total Hari Tersewa',
+            'Omzet',
+        ], $rows, 'laporan-produk-paling-laku'];
+    }
+
+    private function streamExport(array $headers, array $rows, string $filename, string $format): StreamedResponse
+    {
+        $separator = $format === 'csv' ? ',' : "\t";
+        $contentType = $format === 'csv'
+            ? 'text/csv; charset=UTF-8'
+            : 'application/vnd.ms-excel; charset=UTF-8';
+
+        return response()->streamDownload(function () use ($headers, $rows, $separator, $format): void {
+            $handle = fopen('php://output', 'wb');
+
+            if ($handle === false) {
+                return;
+            }
+
+            fwrite($handle, "\xEF\xBB\xBF");
+
+            if ($format === 'csv') {
+                fputcsv($handle, $headers, $separator);
+
+                foreach ($rows as $row) {
+                    fputcsv($handle, $this->normalizeExportRow($row), $separator);
+                }
+            } else {
+                fwrite($handle, implode($separator, array_map(fn (string $value) => $this->escapeExportValue($value), $headers)).PHP_EOL);
+
+                foreach ($rows as $row) {
+                    fwrite($handle, implode($separator, array_map(fn (string $value) => $this->escapeExportValue($value), $this->normalizeExportRow($row))).PHP_EOL);
+                }
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => $contentType,
+        ]);
+    }
+
+    private function normalizeExportRow(array $row): array
+    {
+        return array_map(function ($value): string {
+            if (is_bool($value)) {
+                return $value ? 'Ya' : 'Tidak';
+            }
+
+            return (string) $value;
+        }, $row);
+    }
+
+    private function escapeExportValue(string $value): string
+    {
+        return str_replace(["\r", "\n", "\t"], [' ', ' ', ' '], $value);
+    }
+
     private function normalizeDate(string $value): ?string
     {
         if ($value === '') {
@@ -315,6 +723,16 @@ class ReportController extends Controller
             PaymentKinds::SETTLEMENT => 'Pelunasan',
             PaymentKinds::COMPENSATION => 'Ganti Rugi',
             default => $kind ?? '-',
+        };
+    }
+
+    private function compensationTypeLabel(?string $type): string
+    {
+        return match ($type) {
+            CompensationTypes::REPLACE_WITH_NEW_UNIT => 'Ganti Barang Baru',
+            CompensationTypes::CASH_COMPENSATION => 'Ganti Rugi Uang',
+            CompensationTypes::NONE => 'Tanpa Ganti Rugi',
+            default => $type ?? '-',
         };
     }
 }

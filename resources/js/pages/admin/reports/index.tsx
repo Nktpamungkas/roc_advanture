@@ -125,6 +125,62 @@ interface RecentPaymentItem {
     notes: string | null;
 }
 
+interface ReturnSummary {
+    returned_count: number;
+    settlement_total: number;
+    contract_basis_count: number;
+    actual_basis_count: number;
+}
+
+interface ReturnReportItem {
+    id: number;
+    rental_id: number;
+    rental_no: string | null;
+    customer_name: string | null;
+    returned_at: string | null;
+    final_total_days: number | null;
+    final_subtotal: string;
+    settlement_amount: string;
+    charge_basis_label: string;
+    checker_name: string | null;
+    notes: string | null;
+}
+
+interface DamageSummary {
+    cases_count: number;
+    replacement_count: number;
+    cash_compensation_count: number;
+    total_compensation: number;
+}
+
+interface DamageItem {
+    id: number;
+    rental_id: number | null;
+    rental_no: string | null;
+    customer_name: string | null;
+    returned_at: string | null;
+    product_name: string | null;
+    unit_code: string | null;
+    next_unit_status_label: string;
+    compensation_type_label: string;
+    compensation_amount: string;
+    notes: string | null;
+}
+
+interface TopProductSummary {
+    total_product_rows: number;
+    top_revenue: number;
+    top_product_name: string | null;
+}
+
+interface TopProductItem {
+    product_name: string;
+    rentals_count: number;
+    units_rented_count: number;
+    days_total: number;
+    revenue_total: number;
+}
+
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
     { title: 'Laporan', href: '/admin/reports' },
@@ -136,10 +192,6 @@ const currencyFormatter = new Intl.NumberFormat('id-ID', {
     maximumFractionDigits: 0,
 });
 
-const dateFormatter = new Intl.DateTimeFormat('id-ID', {
-    dateStyle: 'medium',
-});
-
 const dateTimeFormatter = new Intl.DateTimeFormat('id-ID', {
     dateStyle: 'medium',
     timeStyle: 'short',
@@ -149,6 +201,7 @@ export default function ReportsIndex({
     reportFilters,
     rentalStatusOptions,
     dueScopeOptions,
+    exportTargets,
     reportSummary,
     inventorySummary,
     rentals,
@@ -158,10 +211,17 @@ export default function ReportsIndex({
     stockReport,
     paymentSummary,
     recentPayments,
+    returnSummary,
+    returnItems,
+    damageSummary,
+    damageItems,
+    topProductSummary,
+    topProducts,
 }: {
     reportFilters: ReportFilters;
     rentalStatusOptions: OptionItem[];
     dueScopeOptions: OptionItem[];
+    exportTargets: OptionItem[];
     reportSummary: ReportSummary;
     inventorySummary: InventorySummary;
     rentals: RentalReportItem[];
@@ -171,6 +231,12 @@ export default function ReportsIndex({
     stockReport: StockReportItem[];
     paymentSummary: PaymentSummary;
     recentPayments: RecentPaymentItem[];
+    returnSummary: ReturnSummary;
+    returnItems: ReturnReportItem[];
+    damageSummary: DamageSummary;
+    damageItems: DamageItem[];
+    topProductSummary: TopProductSummary;
+    topProducts: TopProductItem[];
 }) {
     const { flash } = usePage<SharedData>().props;
 
@@ -279,6 +345,16 @@ export default function ReportsIndex({
 
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
+    const buildExportUrl = (report: string, format: 'csv' | 'excel') =>
+        route('admin.reports.export', {
+            report,
+            format,
+            search: reportFilters.search || undefined,
+            date_from: reportFilters.date_from,
+            date_to: reportFilters.date_to,
+            rental_status: reportFilters.rental_status || undefined,
+            due_scope: reportFilters.due_scope || undefined,
+        });
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -382,6 +458,30 @@ export default function ReportsIndex({
                                 <Button type="submit">Terapkan Filter</Button>
                             </div>
                         </form>
+                    </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl">
+                    <CardHeader>
+                        <CardTitle>Export Laporan</CardTitle>
+                        <CardDescription>Unduh laporan sesuai filter aktif dalam format CSV atau file yang bisa dibuka langsung di Excel.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                            {exportTargets.map((target) => (
+                                <div key={target.value} className="rounded-2xl border p-4">
+                                    <p className="font-medium">{target.label}</p>
+                                    <div className="mt-3 flex gap-2">
+                                        <Button asChild size="sm" variant="outline" className="flex-1">
+                                            <a href={buildExportUrl(target.value, 'csv')}>CSV</a>
+                                        </Button>
+                                        <Button asChild size="sm" className="flex-1">
+                                            <a href={buildExportUrl(target.value, 'excel')}>Excel</a>
+                                        </Button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -524,7 +624,7 @@ export default function ReportsIndex({
                                                             <Link href={route('admin.rentals.show', item.id)} className="font-medium underline-offset-4 hover:underline">
                                                                 {item.rental_no}
                                                             </Link>
-                                                            <p className="text-muted-foreground mt-1 text-xs">{item.items_count} item • {item.rental_status_label}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{item.items_count} item - {item.rental_status_label}</p>
                                                         </td>
                                                         <td className="px-4 py-3">
                                                             <p className="font-medium">{item.customer_name ?? '-'}</p>
@@ -552,3 +652,313 @@ export default function ReportsIndex({
                             </div>
                         </CardContent>
                     </Card>
+
+                    <Card className="rounded-3xl">
+                        <CardHeader>
+                            <CardTitle>Pembayaran Masuk</CardTitle>
+                            <CardDescription>Ringkasan uang masuk pada periode laporan yang sedang kamu lihat.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Total</p><p className="mt-2 text-xl font-semibold">{formatCurrency(paymentSummary.total_received)}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">DP</p><p className="mt-2 text-xl font-semibold">{formatCurrency(paymentSummary.dp_received)}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Pelunasan</p><p className="mt-2 text-xl font-semibold">{formatCurrency(paymentSummary.settlement_received)}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Ganti Rugi</p><p className="mt-2 text-xl font-semibold">{formatCurrency(paymentSummary.compensation_received)}</p></div>
+                            </div>
+
+                            <div className="rounded-2xl border p-4">
+                                <p className="text-muted-foreground text-xs uppercase tracking-wide">Breakdown Metode</p>
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {paymentSummary.method_breakdown.length > 0 ? (
+                                        paymentSummary.method_breakdown.map((item) => (
+                                            <Badge key={item.label} variant="secondary" className="rounded-full px-3 py-1">
+                                                {item.label}: {formatCurrency(item.total)}
+                                            </Badge>
+                                        ))
+                                    ) : (
+                                        <span className="text-muted-foreground text-sm">Belum ada pembayaran pada periode ini.</span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-2xl border">
+                                <div className="max-h-[26rem] overflow-auto">
+                                    <table className="min-w-full text-sm">
+                                        <thead className="bg-muted/40 sticky top-0">
+                                            <tr className="border-b text-left">
+                                                <th className="px-4 py-3 font-medium">Waktu</th>
+                                                <th className="px-4 py-3 font-medium">Rental</th>
+                                                <th className="px-4 py-3 font-medium">Metode</th>
+                                                <th className="px-4 py-3 font-medium">Jumlah</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {recentPayments.length > 0 ? (
+                                                recentPayments.map((payment) => (
+                                                    <tr key={payment.id} className="border-b align-top">
+                                                        <td className="px-4 py-3">
+                                                            <p>{formatDateTime(payment.paid_at)}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{payment.receiver_name ?? '-'}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p className="font-medium">{payment.rental_no ?? '-'}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{payment.customer_name ?? '-'}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p>{payment.method_label}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{payment.payment_kind_label}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p className="font-medium">{formatCurrency(payment.amount)}</p>
+                                                            {payment.notes && <p className="text-muted-foreground mt-1 text-xs">{payment.notes}</p>}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={4} className="text-muted-foreground px-4 py-6 text-center">
+                                                        Belum ada pembayaran pada rentang tanggal ini.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+                    <Card className="rounded-3xl">
+                        <CardHeader>
+                            <CardTitle>Laporan Pengembalian</CardTitle>
+                            <CardDescription>Riwayat pengembalian dalam periode aktif, termasuk basis tagihan dan nominal pelunasan saat return.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Total Return</p><p className="mt-2 text-xl font-semibold">{returnSummary.returned_count}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Pelunasan</p><p className="mt-2 text-xl font-semibold">{formatCurrency(returnSummary.settlement_total)}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Basis Kontrak</p><p className="mt-2 text-xl font-semibold">{returnSummary.contract_basis_count}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Basis Aktual</p><p className="mt-2 text-xl font-semibold">{returnSummary.actual_basis_count}</p></div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-2xl border">
+                                <div className="max-h-[28rem] overflow-auto">
+                                    <table className="min-w-full text-sm">
+                                        <thead className="bg-muted/40 sticky top-0">
+                                            <tr className="border-b text-left">
+                                                <th className="px-4 py-3 font-medium">Rental</th>
+                                                <th className="px-4 py-3 font-medium">Customer</th>
+                                                <th className="px-4 py-3 font-medium">Return</th>
+                                                <th className="px-4 py-3 font-medium">Tagihan</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {returnItems.length > 0 ? (
+                                                returnItems.map((item) => (
+                                                    <tr key={item.id} className="border-b align-top">
+                                                        <td className="px-4 py-3">
+                                                            <Link href={route('admin.rentals.show', item.rental_id)} className="font-medium underline-offset-4 hover:underline">
+                                                                {item.rental_no ?? '-'}
+                                                            </Link>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{item.charge_basis_label}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p className="font-medium">{item.customer_name ?? '-'}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">{item.checker_name ?? '-'}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p>{formatDateTime(item.returned_at)}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">Durasi final: {item.final_total_days ?? 0} hari</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p className="font-medium">{formatCurrency(item.final_subtotal)}</p>
+                                                            <p className="text-muted-foreground mt-1 text-xs">Pelunasan {formatCurrency(item.settlement_amount)}</p>
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={4} className="text-muted-foreground px-4 py-6 text-center">
+                                                        Belum ada data pengembalian pada periode ini.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="rounded-3xl">
+                        <CardHeader>
+                            <CardTitle>Produk Paling Laku</CardTitle>
+                            <CardDescription>Ranking produk berdasarkan omzet dan frekuensi keluar pada periode laporan.</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Baris Produk</p><p className="mt-2 text-xl font-semibold">{topProductSummary.total_product_rows}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Top Product</p><p className="mt-2 text-lg font-semibold">{topProductSummary.top_product_name ?? '-'}</p></div>
+                                <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Top Revenue</p><p className="mt-2 text-xl font-semibold">{formatCurrency(topProductSummary.top_revenue)}</p></div>
+                            </div>
+
+                            <div className="overflow-hidden rounded-2xl border">
+                                <div className="max-h-[28rem] overflow-auto">
+                                    <table className="min-w-full text-sm">
+                                        <thead className="bg-muted/40 sticky top-0">
+                                            <tr className="border-b text-left">
+                                                <th className="px-4 py-3 font-medium">Produk</th>
+                                                <th className="px-4 py-3 font-medium">Total Rental</th>
+                                                <th className="px-4 py-3 font-medium">Unit Keluar</th>
+                                                <th className="px-4 py-3 font-medium">Hari Tersewa</th>
+                                                <th className="px-4 py-3 font-medium">Omzet</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {topProducts.length > 0 ? (
+                                                topProducts.map((item) => (
+                                                    <tr key={item.product_name} className="border-b">
+                                                        <td className="px-4 py-3 font-medium">{item.product_name}</td>
+                                                        <td className="px-4 py-3">{item.rentals_count}</td>
+                                                        <td className="px-4 py-3">{item.units_rented_count}</td>
+                                                        <td className="px-4 py-3">{item.days_total}</td>
+                                                        <td className="px-4 py-3">{formatCurrency(item.revenue_total)}</td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={5} className="text-muted-foreground px-4 py-6 text-center">
+                                                        Belum ada data produk tersewa pada periode ini.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                <Card className="rounded-3xl">
+                    <CardHeader>
+                        <CardTitle>Kerusakan & Ganti Rugi</CardTitle>
+                        <CardDescription>Monitor unit yang masuk maintenance, retired, atau membutuhkan penggantian/ganti rugi.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Kasus</p><p className="mt-2 text-xl font-semibold">{damageSummary.cases_count}</p></div>
+                            <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Ganti Barang</p><p className="mt-2 text-xl font-semibold">{damageSummary.replacement_count}</p></div>
+                            <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Ganti Uang</p><p className="mt-2 text-xl font-semibold">{damageSummary.cash_compensation_count}</p></div>
+                            <div className="rounded-2xl border p-4"><p className="text-muted-foreground text-xs uppercase tracking-wide">Nominal</p><p className="mt-2 text-xl font-semibold">{formatCurrency(damageSummary.total_compensation)}</p></div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-2xl border">
+                            <div className="max-h-[28rem] overflow-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-muted/40 sticky top-0">
+                                        <tr className="border-b text-left">
+                                            <th className="px-4 py-3 font-medium">Rental</th>
+                                            <th className="px-4 py-3 font-medium">Produk</th>
+                                            <th className="px-4 py-3 font-medium">Penyelesaian</th>
+                                            <th className="px-4 py-3 font-medium">Nominal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {damageItems.length > 0 ? (
+                                            damageItems.map((item) => (
+                                                <tr key={item.id} className="border-b align-top">
+                                                    <td className="px-4 py-3">
+                                                        {item.rental_id ? (
+                                                            <Link href={route('admin.rentals.show', item.rental_id)} className="font-medium underline-offset-4 hover:underline">
+                                                                {item.rental_no ?? '-'}
+                                                            </Link>
+                                                        ) : (
+                                                            <p className="font-medium">{item.rental_no ?? '-'}</p>
+                                                        )}
+                                                        <p className="text-muted-foreground mt-1 text-xs">{item.customer_name ?? '-'}</p>
+                                                        <p className="text-muted-foreground text-xs">{formatDateTime(item.returned_at)}</p>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <p className="font-medium">{item.product_name ?? '-'}</p>
+                                                        <p className="text-muted-foreground mt-1 text-xs">{item.unit_code ?? '-'}</p>
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <p>{item.compensation_type_label}</p>
+                                                        <p className="text-muted-foreground mt-1 text-xs">{item.next_unit_status_label}</p>
+                                                        {item.notes && <p className="text-muted-foreground mt-1 text-xs">{item.notes}</p>}
+                                                    </td>
+                                                    <td className="px-4 py-3">{formatCurrency(item.compensation_amount)}</td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={4} className="text-muted-foreground px-4 py-6 text-center">
+                                                    Belum ada kasus kerusakan atau ganti rugi pada periode ini.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                <Card className="rounded-3xl">
+                    <CardHeader>
+                        <CardTitle>Posisi Stok per Produk</CardTitle>
+                        <CardDescription>Lihat distribusi unit siap sewa, belum dicuci, sedang disewa, maintenance, dan retired per produk.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="overflow-hidden rounded-2xl border">
+                            <div className="max-h-[30rem] overflow-auto">
+                                <table className="min-w-full text-sm">
+                                    <thead className="bg-muted/40 sticky top-0">
+                                        <tr className="border-b text-left">
+                                            <th className="px-4 py-3 font-medium">Produk</th>
+                                            <th className="px-4 py-3 font-medium">Tarif</th>
+                                            <th className="px-4 py-3 font-medium">Total</th>
+                                            <th className="px-4 py-3 font-medium">Ready Bersih</th>
+                                            <th className="px-4 py-3 font-medium">Belum Dicuci</th>
+                                            <th className="px-4 py-3 font-medium">Disewa</th>
+                                            <th className="px-4 py-3 font-medium">Maintenance</th>
+                                            <th className="px-4 py-3 font-medium">Retired</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {stockReport.length > 0 ? (
+                                            stockReport.map((product) => (
+                                                <tr key={product.id} className="border-b">
+                                                    <td className="px-4 py-3">
+                                                        <p className="font-medium">{product.name}</p>
+                                                        <p className="text-muted-foreground mt-1 text-xs">{product.category ?? '-'}</p>
+                                                    </td>
+                                                    <td className="px-4 py-3">{formatCurrency(product.daily_rate)}</td>
+                                                    <td className="px-4 py-3">{product.total_units_count}</td>
+                                                    <td className="px-4 py-3">{product.ready_clean_units_count}</td>
+                                                    <td className="px-4 py-3">{product.ready_unclean_units_count}</td>
+                                                    <td className="px-4 py-3">{product.rented_units_count}</td>
+                                                    <td className="px-4 py-3">{product.maintenance_units_count}</td>
+                                                    <td className="px-4 py-3">{product.retired_units_count}</td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan={8} className="text-muted-foreground px-4 py-6 text-center">
+                                                    Belum ada data produk untuk ditampilkan.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        </AppLayout>
+    );
+}

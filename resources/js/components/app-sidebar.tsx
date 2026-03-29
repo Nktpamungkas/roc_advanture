@@ -1,9 +1,9 @@
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { type NavItem, type SharedData } from '@/types';
+import { type NavGroup, type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, BarChart3, Bath, CalendarDays, CreditCard, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
+import { Archive, BarChart3, Bath, CalendarDays, CreditCard, FileText, LayoutGrid, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -12,7 +12,7 @@ export function AppSidebar() {
     const canManageUsers = roleNames.includes('super-admin') || roleNames.includes('admin-toko');
     const isSuperAdmin = roleNames.includes('super-admin');
 
-    const mainNavItems: NavItem[] = [
+    const commonOperationalItems: NavItem[] = [
         {
             title: 'Dashboard',
             url: '/dashboard',
@@ -21,58 +21,155 @@ export function AppSidebar() {
         ...(canManageUsers
             ? [
                   {
-                      title: 'Penyewaan',
-                      url: route('admin.rentals.index'),
-                      icon: FileText,
-                  },
-                  {
-                      title: 'Pengembalian',
-                      url: route('admin.returns.index'),
-                      icon: RotateCcw,
-                  },
-                  {
                       title: 'Laporan',
                       url: route('admin.reports.index'),
                       icon: BarChart3,
                   },
+              ]
+            : []),
+    ];
+
+    const rentalOperationalItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'Penyewaan',
+                  url: route('admin.rentals.index'),
+                  icon: FileText,
+              },
+              {
+                  title: 'Pengembalian',
+                  url: route('admin.returns.index'),
+                  icon: RotateCcw,
+              },
+              {
+                  title: 'Proses Cuci',
+                  url: route('admin.washing.index'),
+                  icon: Bath,
+              },
+          ]
+        : [];
+
+    const salesOperationalItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'Penjualan',
+                  url: route('admin.sales.index'),
+                  icon: ShoppingBag,
+              },
+              {
+                  title: 'Stok Masuk',
+                  url: route('admin.stock-receipts.index'),
+                  icon: Truck,
+              },
+          ]
+        : [];
+
+    const rentalMasterItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'Produk Sewa',
+                  url: route('admin.products.index'),
+                  icon: Package,
+              },
+              {
+                  title: 'Unit Inventaris',
+                  url: route('admin.inventory-units.index'),
+                  icon: Archive,
+              },
+              {
+                  title: 'Customer',
+                  url: route('admin.customers.index'),
+                  icon: Users,
+              },
+              {
+                  title: 'Season & DP',
+                  url: route('admin.season-rules.index'),
+                  icon: CalendarDays,
+              },
+          ]
+        : [];
+
+    const salesMasterItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'Produk Jual',
+                  url: route('admin.sale-products.index'),
+                  icon: ShoppingBag,
+              },
+          ]
+        : [];
+
+    const sharedMasterItems: NavItem[] =
+        canManageUsers && isSuperAdmin
+            ? [
                   {
-                      title: 'Produk',
-                      url: route('admin.products.index'),
-                      icon: Package,
+                      title: 'Metode Pembayaran',
+                      url: route('admin.payment-methods.index'),
+                      icon: CreditCard,
                   },
+              ]
+            : [];
+
+    const settingsItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'User Management',
+                  url: route('admin.users.index'),
+                  icon: Users,
+              },
+          ]
+        : [];
+
+    const navGroups: NavGroup[] = [
+        {
+            title: 'Operasional Umum',
+            items: commonOperationalItems,
+        },
+        ...(rentalOperationalItems.length > 0
+            ? [
                   {
-                      title: 'Unit Inventaris',
-                      url: route('admin.inventory-units.index'),
-                      icon: Archive,
+                      title: 'Operasional Rental',
+                      items: rentalOperationalItems,
                   },
+              ]
+            : []),
+        ...(salesOperationalItems.length > 0
+            ? [
                   {
-                      title: 'Proses Cuci',
-                      url: route('admin.washing.index'),
-                      icon: Bath,
+                      title: 'Operasional Penjualan',
+                      items: salesOperationalItems,
                   },
+              ]
+            : []),
+        ...(rentalMasterItems.length > 0
+            ? [
                   {
-                      title: 'Customer',
-                      url: route('admin.customers.index'),
-                      icon: Users,
+                      title: 'Master Rental',
+                      items: rentalMasterItems,
                   },
+              ]
+            : []),
+        ...(salesMasterItems.length > 0
+            ? [
                   {
-                      title: 'Season & DP',
-                      url: route('admin.season-rules.index'),
-                      icon: CalendarDays,
+                      title: 'Master Penjualan',
+                      items: salesMasterItems,
                   },
-                  ...(isSuperAdmin
-                      ? [
-                            {
-                                title: 'Metode Pembayaran',
-                                url: route('admin.payment-methods.index'),
-                                icon: CreditCard,
-                            },
-                        ]
-                      : []),
+              ]
+            : []),
+        ...(sharedMasterItems.length > 0
+            ? [
                   {
-                      title: 'User Management',
-                      url: route('admin.users.index'),
-                      icon: Users,
+                      title: 'Master Umum',
+                      items: sharedMasterItems,
+                  },
+              ]
+            : []),
+        ...(settingsItems.length > 0
+            ? [
+                  {
+                      title: 'Pengaturan',
+                      items: settingsItems,
                   },
               ]
             : []),
@@ -93,7 +190,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain groups={navGroups} />
             </SidebarContent>
 
             <SidebarFooter>
