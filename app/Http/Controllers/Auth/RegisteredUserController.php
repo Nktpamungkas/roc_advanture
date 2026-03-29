@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\RolePermissionBootstrapper;
+use App\Support\Access\RoleNames;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,11 @@ use Inertia\Response;
 
 class RegisteredUserController extends Controller
 {
+    public function __construct(
+        private readonly RolePermissionBootstrapper $rolePermissionBootstrapper,
+    ) {
+    }
+
     /**
      * Show the registration page.
      */
@@ -30,6 +37,10 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_if(User::query()->exists(), 404);
+
+        $this->rolePermissionBootstrapper->ensureRolesAndPermissions();
+
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
@@ -40,7 +51,10 @@ class RegisteredUserController extends Controller
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'is_active' => true,
         ]);
+
+        $user->assignRole(RoleNames::SUPER_ADMIN);
 
         event(new Registered($user));
 

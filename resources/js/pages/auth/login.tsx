@@ -1,4 +1,5 @@
-import { Head, useForm } from '@inertiajs/react';
+import { type SharedData } from '@/types';
+import { Head, useForm, usePage } from '@inertiajs/react';
 import { LoaderCircle } from 'lucide-react';
 import { FormEventHandler } from 'react';
 
@@ -22,6 +23,7 @@ interface LoginProps {
 }
 
 export default function Login({ status, canResetPassword }: LoginProps) {
+    const { can_register } = usePage<SharedData>().props;
     const { data, setData, post, processing, errors, reset } = useForm<LoginForm>({
         email: '',
         password: '',
@@ -80,7 +82,7 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                     </div>
 
                     <div className="flex items-center space-x-3">
-                        <Checkbox id="remember" name="remember" tabIndex={3} />
+                        <Checkbox id="remember" name="remember" tabIndex={3} checked={data.remember} onCheckedChange={(checked) => setData('remember', checked === true)} />
                         <Label htmlFor="remember">Remember me</Label>
                     </div>
 
@@ -90,12 +92,14 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                     </Button>
                 </div>
 
-                <div className="text-muted-foreground text-center text-sm">
-                    Don't have an account?{' '}
-                    <TextLink href={route('register')} tabIndex={5}>
-                        Sign up
-                    </TextLink>
-                </div>
+                {can_register && (
+                    <div className="text-muted-foreground text-center text-sm">
+                        Don't have an account?{' '}
+                        <TextLink href={route('register')} tabIndex={5}>
+                            Sign up
+                        </TextLink>
+                    </div>
+                )}
             </form>
 
             {status && <div className="mb-4 text-center text-sm font-medium text-green-600">{status}</div>}

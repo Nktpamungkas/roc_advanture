@@ -2,7 +2,7 @@ import { type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 
 export default function Welcome() {
-    const { auth } = usePage<SharedData>().props;
+    const { auth, can_register } = usePage<SharedData>().props;
 
     return (
         <>
@@ -32,12 +32,14 @@ export default function Welcome() {
                                     >
                                         Login
                                     </Link>
-                                    <Link
-                                        href={route('register')}
-                                        className="rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-stone-950 transition hover:bg-amber-400"
-                                    >
-                                        Register
-                                    </Link>
+                                    {can_register && (
+                                        <Link
+                                            href={route('register')}
+                                            className="rounded-full bg-amber-500 px-5 py-2 text-sm font-medium text-stone-950 transition hover:bg-amber-400"
+                                        >
+                                            Register
+                                        </Link>
+                                    )}
                                 </>
                             )}
                         </nav>
@@ -75,7 +77,7 @@ export default function Welcome() {
                             <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-6 backdrop-blur">
                                 <p className="text-sm font-medium text-amber-300">Sudah siap</p>
                                 <ul className="mt-4 space-y-3 text-sm leading-6 text-stone-300">
-                                    <li>Halaman login, register, reset password, dan settings bawaan starter kit.</li>
+                                    <li>Halaman login, bootstrap register pertama, reset password, dan settings dasar.</li>
                                     <li>Dashboard placeholder untuk area internal setelah user login.</li>
                                     <li>Folder admin, services, policies, dan docs untuk fondasi pengembangan.</li>
                                 </ul>
