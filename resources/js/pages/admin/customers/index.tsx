@@ -4,11 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { Head, useForm, usePage } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { ChevronLeft, ChevronRight, LoaderCircle, Search, X } from 'lucide-react';
 import { FormEventHandler, useEffect, useMemo, useState } from 'react';
 
 interface CustomerItem {
@@ -27,12 +28,42 @@ interface CustomerForm {
     notes: string;
 }
 
+interface CustomerFilters {
+    search: string;
+    per_page: number;
+}
+
+interface CustomerPagination {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+}
+
+interface CustomerSummary {
+    total_customers: number;
+    filtered_customers: number;
+    total_rentals: number;
+}
+
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
     { title: 'Customer', href: '/admin/customers' },
 ];
 
-export default function CustomersIndex({ customers }: { customers: CustomerItem[] }) {
+export default function CustomersIndex({
+    customers,
+    customerFilters,
+    customerPagination,
+    customerSummary,
+}: {
+    customers: CustomerItem[];
+    customerFilters: CustomerFilters;
+    customerPagination: CustomerPagination;
+    customerSummary: CustomerSummary;
+}) {
     const { flash } = usePage<SharedData>().props;
     const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(customers[0]?.id ?? null);
 
@@ -55,6 +86,11 @@ export default function CustomersIndex({ customers }: { customers: CustomerItem[
         notes: '',
     });
 
+    const filterForm = useForm({
+        search: customerFilters.search,
+        per_page: String(customerFilters.per_page),
+    });
+
     useEffect(() => {
         if (!selectedCustomer) {
             updateForm.reset();
@@ -69,6 +105,21 @@ export default function CustomersIndex({ customers }: { customers: CustomerItem[
         });
         updateForm.clearErrors();
     }, [selectedCustomer]);
+
+    useEffect(() => {
+        if (customers.some((customer) => customer.id === selectedCustomerId)) {
+            return;
+        }
+
+        setSelectedCustomerId(customers[0]?.id ?? null);
+    }, [customers, selectedCustomerId]);
+
+    useEffect(() => {
+        filterForm.setData({
+            search: customerFilters.search,
+            per_page: String(customerFilters.per_page),
+        });
+    }, [customerFilters.per_page, customerFilters.search]);
 
     const submitCreate: FormEventHandler = (event) => {
         event.preventDefault();
@@ -90,6 +141,68 @@ export default function CustomersIndex({ customers }: { customers: CustomerItem[
             preserveScroll: true,
         });
     };
+
+    const submitFilters: FormEventHandler = (event) => {
+        event.preventDefault();
+
+        router.get(
+            route('admin.customers.index'),
+            {
+                search: filterForm.data.search || undefined,
+                per_page: filterForm.data.per_page,
+            },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            },
+        );
+    };
+
+    const resetFilters = () => {
+        filterForm.setData({
+            search: '',
+            per_page: '10',
+        });
+
+        router.get(
+            route('admin.customers.index'),
+            { per_page: 10 },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            },
+        );
+    };
+
+    const goToPage = (page: number) => {
+        router.get(
+            route('admin.customers.index'),
+            {
+                search: customerFilters.search || undefined,
+                per_page: customerFilters.per_page,
+                page,
+            },
+            {
+                preserveState: true,
+                preserveScroll: true,
+                replace: true,
+            },
+        );
+    };
+
+    const paginationPages = useMemo(() => {
+        if (customerPagination.last_page <= 1) {
+            return [1];
+        }
+
+        const start = Math.max(1, customerPagination.current_page - 2);
+        const end = Math.min(customerPagination.last_page, start + 4);
+        const normalizedStart = Math.max(1, end - 4);
+
+        return Array.from({ length: end - normalizedStart + 1 }, (_, index) => normalizedStart + index);
+    }, [customerPagination.current_page, customerPagination.last_page]);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -174,45 +287,153 @@ export default function CustomersIndex({ customers }: { customers: CustomerItem[
                     <Card>
                         <CardHeader>
                             <CardTitle>Daftar Customer</CardTitle>
-                            <CardDescription>Pilih customer untuk memperbarui data kontak dan catatannya.</CardDescription>
+                            <CardDescription>Cari customer lebih cepat tanpa harus scroll panjang saat data penyewa mulai banyak.</CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-6">
-                            <div className="overflow-x-auto rounded-xl border">
-                                <table className="min-w-full text-sm">
-                                    <thead className="bg-muted/40">
-                                        <tr className="text-left">
-                                            <th className="px-4 py-3 font-medium">Nama</th>
-                                            <th className="px-4 py-3 font-medium">WhatsApp</th>
-                                            <th className="px-4 py-3 font-medium">Alamat</th>
-                                            <th className="px-4 py-3 font-medium">Riwayat Sewa</th>
-                                            <th className="px-4 py-3 text-right font-medium">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {customers.map((customer) => {
-                                            const isActive = selectedCustomerId === customer.id;
+                            <div className="grid gap-4 md:grid-cols-3">
+                                <div className="rounded-2xl border p-4">
+                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Total Customer</p>
+                                    <p className="mt-2 text-2xl font-semibold">{customerSummary.total_customers}</p>
+                                </div>
+                                <div className="rounded-2xl border p-4">
+                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Hasil Filter</p>
+                                    <p className="mt-2 text-2xl font-semibold">{customerSummary.filtered_customers}</p>
+                                </div>
+                                <div className="rounded-2xl border p-4">
+                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Total Rental</p>
+                                    <p className="mt-2 text-2xl font-semibold">{customerSummary.total_rentals}</p>
+                                </div>
+                            </div>
 
-                                            return (
-                                                <tr key={customer.id} className={isActive ? 'bg-muted/30' : ''}>
-                                                    <td className="px-4 py-3 font-medium">{customer.name}</td>
-                                                    <td className="px-4 py-3 text-muted-foreground">{customer.phone_whatsapp}</td>
-                                                    <td className="px-4 py-3 text-muted-foreground">{customer.address || '-'}</td>
-                                                    <td className="px-4 py-3 text-muted-foreground">{customer.rentals_count}</td>
-                                                    <td className="px-4 py-3 text-right">
-                                                        <Button
-                                                            type="button"
-                                                            variant={isActive ? 'secondary' : 'outline'}
-                                                            size="sm"
-                                                            onClick={() => setSelectedCustomerId(customer.id)}
-                                                        >
-                                                            Edit
-                                                        </Button>
+                            <form className="rounded-2xl border p-4" onSubmit={submitFilters}>
+                                <div className="grid gap-4 xl:grid-cols-[1.6fr_0.7fr]">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="customer-search">Cari Customer</Label>
+                                        <div className="relative">
+                                            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                                            <Input
+                                                id="customer-search"
+                                                value={filterForm.data.search}
+                                                onChange={(event) => filterForm.setData('search', event.target.value)}
+                                                placeholder="Cari nama, nomor WA, atau alamat"
+                                                className="pl-9"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="customer-per-page">Baris / Halaman</Label>
+                                        <Select value={filterForm.data.per_page} onValueChange={(value) => filterForm.setData('per_page', value)}>
+                                            <SelectTrigger id="customer-per-page">
+                                                <SelectValue placeholder="10" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="10">10</SelectItem>
+                                                <SelectItem value="15">15</SelectItem>
+                                                <SelectItem value="25">25</SelectItem>
+                                                <SelectItem value="50">50</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-3">
+                                    <Button type="submit">Terapkan Filter</Button>
+                                    <Button type="button" variant="outline" onClick={resetFilters}>
+                                        <X className="h-4 w-4" />
+                                        Reset
+                                    </Button>
+                                </div>
+                            </form>
+
+                            <div className="rounded-xl border">
+                                <div className="max-h-[28rem] overflow-auto">
+                                    <table className="min-w-full text-sm">
+                                        <thead className="bg-muted/60 sticky top-0 z-10 backdrop-blur">
+                                            <tr className="text-left">
+                                                <th className="px-4 py-3 font-medium">Nama</th>
+                                                <th className="px-4 py-3 font-medium">WhatsApp</th>
+                                                <th className="px-4 py-3 font-medium">Alamat</th>
+                                                <th className="px-4 py-3 font-medium">Riwayat Sewa</th>
+                                                <th className="px-4 py-3 text-right font-medium">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {customers.length > 0 ? (
+                                                customers.map((customer) => {
+                                                    const isActive = selectedCustomerId === customer.id;
+
+                                                    return (
+                                                        <tr key={customer.id} className={isActive ? 'bg-muted/30' : ''}>
+                                                            <td className="px-4 py-3 font-medium">{customer.name}</td>
+                                                            <td className="px-4 py-3 text-muted-foreground">{customer.phone_whatsapp}</td>
+                                                            <td className="px-4 py-3 text-muted-foreground">{customer.address || '-'}</td>
+                                                            <td className="px-4 py-3 text-muted-foreground">{customer.rentals_count}</td>
+                                                            <td className="px-4 py-3 text-right">
+                                                                <Button
+                                                                    type="button"
+                                                                    variant={isActive ? 'secondary' : 'outline'}
+                                                                    size="sm"
+                                                                    onClick={() => setSelectedCustomerId(customer.id)}
+                                                                >
+                                                                    Edit
+                                                                </Button>
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            ) : (
+                                                <tr>
+                                                    <td colSpan={5} className="text-muted-foreground px-4 py-8 text-center">
+                                                        Tidak ada customer yang cocok dengan filter saat ini.
                                                     </td>
                                                 </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <p className="text-muted-foreground text-sm">
+                                    Menampilkan {customerPagination.from ?? 0} - {customerPagination.to ?? 0} dari {customerPagination.total} customer.
+                                </p>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => goToPage(customerPagination.current_page - 1)}
+                                        disabled={customerPagination.current_page <= 1}
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                        Prev
+                                    </Button>
+
+                                    {paginationPages.map((page) => (
+                                        <Button
+                                            key={page}
+                                            type="button"
+                                            variant={page === customerPagination.current_page ? 'secondary' : 'outline'}
+                                            size="sm"
+                                            onClick={() => goToPage(page)}
+                                        >
+                                            {page}
+                                        </Button>
+                                    ))}
+
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => goToPage(customerPagination.current_page + 1)}
+                                        disabled={customerPagination.current_page >= customerPagination.last_page}
+                                    >
+                                        Next
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
 
                             {selectedCustomer ? (

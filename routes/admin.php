@@ -17,6 +17,7 @@ Route::middleware(['auth'])
 
         Route::get('inventory-units', [InventoryUnitController::class, 'index'])->name('inventory-units.index');
         Route::post('inventory-units', [InventoryUnitController::class, 'store'])->name('inventory-units.store');
+        Route::post('inventory-units/generate', [InventoryUnitController::class, 'storeBulk'])->name('inventory-units.generate');
         Route::patch('inventory-units/{inventoryUnit}', [InventoryUnitController::class, 'update'])->name('inventory-units.update');
 
         Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
