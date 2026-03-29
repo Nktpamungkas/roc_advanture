@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { LayoutGrid, Users } from 'lucide-react';
+import { Archive, CalendarDays, LayoutGrid, Package, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -19,6 +19,26 @@ export function AppSidebar() {
         },
         ...(canManageUsers
             ? [
+                  {
+                      title: 'Produk',
+                      url: route('admin.products.index'),
+                      icon: Package,
+                  },
+                  {
+                      title: 'Unit Inventaris',
+                      url: route('admin.inventory-units.index'),
+                      icon: Archive,
+                  },
+                  {
+                      title: 'Customer',
+                      url: route('admin.customers.index'),
+                      icon: Users,
+                  },
+                  {
+                      title: 'Season & DP',
+                      url: route('admin.season-rules.index'),
+                      icon: CalendarDays,
+                  },
                   {
                       title: 'User Management',
                       url: route('admin.users.index'),
