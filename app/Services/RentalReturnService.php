@@ -3,13 +3,19 @@
 namespace App\Services;
 
 use App\Models\InventoryUnit;
+use App\Models\Payment;
+use App\Models\PaymentMethodConfig;
 use App\Models\Rental;
 use App\Models\RentalReturn;
 use App\Models\User;
 use App\Support\Rental\CompensationTypes;
 use App\Support\Rental\InventoryUnitStatuses;
+use App\Support\Rental\PaymentKinds;
+use App\Support\Rental\PaymentMethods;
+use App\Support\Rental\RentalPaymentStatuses;
 use App\Support\Rental\RentalStatuses;
 use App\Support\Rental\ReturnConditions;
+use App\Support\Rental\SettlementBases;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -21,7 +27,7 @@ class RentalReturnService
         return DB::transaction(function () use ($actor, $validated): RentalReturn {
             /** @var Rental|null $rental */
             $rental = Rental::query()
-                ->with(['items.inventoryUnit'])
+                ->with(['items.inventoryUnit', 'customer', 'creator'])
                 ->whereKey($validated['rental_id'])
                 ->lockForUpdate()
                 ->first();
@@ -62,10 +68,21 @@ class RentalReturnService
                 ->get()
                 ->keyBy('id');
 
+            $returnedAt = Carbon::parse($validated['returned_at']);
+            $settlementBasis = (string) $validated['settlement_basis'];
+            $finalTotalDays = $this->calculateFinalTotalDays($rental, $returnedAt, $settlementBasis);
+            $finalSubtotal = $this->calculateFinalSubtotal($rental, $finalTotalDays, $settlementBasis);
+            $settlementAmount = round(max(0, $finalSubtotal - (float) $rental->paid_amount), 2);
+            $paymentMethodConfig = $this->resolvePaymentMethodConfig($validated['payment_method_config_id'] ?? null);
+
             $returnRecord = RentalReturn::query()->create([
                 'rental_id' => $rental->id,
                 'checked_by' => $actor->id,
-                'returned_at' => Carbon::parse($validated['returned_at']),
+                'returned_at' => $returnedAt,
+                'charge_basis' => $settlementBasis,
+                'final_total_days' => $finalTotalDays,
+                'final_subtotal' => $finalSubtotal,
+                'settlement_amount' => $settlementAmount,
                 'notes' => $validated['notes'] ?? null,
             ]);
 
@@ -92,7 +109,29 @@ class RentalReturnService
                 }
             }
 
+            if ($settlementAmount > 0) {
+                Payment::query()->create([
+                    'rental_id' => $rental->id,
+                    'received_by' => $actor->id,
+                    'payment_method_config_id' => $paymentMethodConfig?->id,
+                    'payment_kind' => PaymentKinds::SETTLEMENT,
+                    'amount' => $settlementAmount,
+                    'paid_at' => $returnedAt,
+                    'method' => $paymentMethodConfig?->type,
+                    'method_label_snapshot' => $paymentMethodConfig?->name,
+                    'method_type_snapshot' => $paymentMethodConfig?->type,
+                    'instructions_snapshot' => $paymentMethodConfig?->instructions,
+                    'notes' => $validated['payment_notes'] ?? null,
+                ]);
+            }
+
             $rental->update([
+                'final_total_days' => $finalTotalDays,
+                'final_subtotal' => $finalSubtotal,
+                'settlement_basis' => $settlementBasis,
+                'paid_amount' => round((float) $rental->paid_amount + $settlementAmount, 2),
+                'remaining_amount' => 0,
+                'payment_status' => RentalPaymentStatuses::PAID,
                 'rental_status' => RentalStatuses::RETURNED,
             ]);
 
@@ -102,6 +141,36 @@ class RentalReturnService
                 'items.rentalItem.inventoryUnit.product',
             ]);
         });
+    }
+
+    private function resolvePaymentMethodConfig(?int $paymentMethodConfigId): ?PaymentMethodConfig
+    {
+        if ($paymentMethodConfigId === null) {
+            return null;
+        }
+
+        return PaymentMethodConfig::query()->find($paymentMethodConfigId);
+    }
+
+    private function calculateFinalTotalDays(Rental $rental, Carbon $returnedAt, string $settlementBasis): int
+    {
+        if ($settlementBasis === SettlementBases::ACTUAL && $rental->starts_at !== null) {
+            return max(1, (int) ceil($rental->starts_at->diffInMinutes($returnedAt) / 1440));
+        }
+
+        return $rental->total_days;
+    }
+
+    private function calculateFinalSubtotal(Rental $rental, int $finalTotalDays, string $settlementBasis): float
+    {
+        if ($settlementBasis === SettlementBases::ACTUAL) {
+            return round(
+                $rental->items->sum(fn ($item) => ((float) $item->daily_rate_snapshot) * $finalTotalDays),
+                2,
+            );
+        }
+
+        return round((float) $rental->subtotal, 2);
     }
 
     private function deriveReturnCondition(string $nextStatus): string

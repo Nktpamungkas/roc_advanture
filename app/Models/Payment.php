@@ -13,10 +13,14 @@ class Payment extends Model
     protected $fillable = [
         'rental_id',
         'received_by',
+        'payment_method_config_id',
         'payment_kind',
         'amount',
         'paid_at',
         'method',
+        'method_label_snapshot',
+        'method_type_snapshot',
+        'instructions_snapshot',
         'notes',
     ];
 
@@ -36,5 +40,10 @@ class Payment extends Model
     public function receiver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function paymentMethodConfig(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethodConfig::class);
     }
 }

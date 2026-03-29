@@ -10,19 +10,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem, type SharedData } from '@/types';
-import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { FileText, LoaderCircle, Search } from 'lucide-react';
-import { FormEventHandler, useMemo, useState } from 'react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
+import { ChevronLeft, ChevronRight, FileText, LoaderCircle, Search, UserRoundSearch, X } from 'lucide-react';
+import { FormEventHandler, useEffect, useMemo, useState } from 'react';
+
+interface CustomerRating {
+    score: number;
+    label: string;
+    total_rentals: number;
+    overdue_returns: number;
+    damaged_returns: number;
+}
 
 interface CustomerOption {
     id: number;
     name: string;
     phone_whatsapp: string;
+    address: string | null;
+    rating: CustomerRating | null;
 }
 
 interface AvailableUnitItem {
     id: number;
-    product_id: number;
     product_name: string | null;
     unit_code: string;
     status: string;
@@ -32,19 +41,24 @@ interface AvailableUnitItem {
 }
 
 interface SeasonRuleItem {
-    id: number;
     name: string;
     start_date: string;
     end_date: string;
     dp_required: boolean;
     dp_type: string | null;
     dp_value: string | null;
-    notes: string | null;
 }
 
 interface PaymentMethodOption {
     value: string;
     label: string;
+    type: string;
+    type_label: string;
+    instructions: string | null;
+    bank_name: string | null;
+    account_number: string | null;
+    account_name: string | null;
+    qr_image_path: string | null;
 }
 
 interface RecentRentalItem {
@@ -57,9 +71,7 @@ interface RecentRentalItem {
     subtotal: string;
     paid_amount: string;
     remaining_amount: string;
-    payment_status: string;
     payment_status_label: string;
-    rental_status: string;
     rental_status_label: string;
 }
 
@@ -70,14 +82,33 @@ interface RentalSummary {
     active_rentals: number;
 }
 
+interface RentalFilters {
+    recent_search: string;
+    recent_per_page: number;
+}
+
+interface RecentRentalPagination {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+}
+
 interface RentalForm {
     customer_id: string;
+    customer_name: string;
+    customer_phone_whatsapp: string;
+    customer_address: string;
     starts_at: string;
+    rental_days: string;
     due_at: string;
     inventory_unit_ids: number[];
     paid_amount: string;
-    payment_method: string;
+    payment_method_config_id: string;
     payment_notes: string;
+    dp_override_reason: string;
     notes: string;
 }
 
@@ -103,19 +134,25 @@ const toDateTimeLocalValue = (date: Date) => {
     return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16);
 };
 
-const buildDefaultStartAt = () => {
+const defaultStartAt = () => {
     const now = new Date();
     now.setMinutes(0, 0, 0);
     now.setHours(now.getHours() + 1);
 
-    return now;
+    return toDateTimeLocalValue(now);
 };
 
-const buildDefaultDueAt = (startAt: Date) => {
-    const dueAt = new Date(startAt);
-    dueAt.setDate(dueAt.getDate() + 1);
+const calculateDueAtValue = (startsAtValue: string, rentalDaysValue: string) => {
+    const startsAt = new Date(startsAtValue);
+    const rentalDays = Number(rentalDaysValue);
 
-    return dueAt;
+    if (Number.isNaN(startsAt.getTime()) || rentalDays <= 0) {
+        return '';
+    }
+
+    startsAt.setDate(startsAt.getDate() + rentalDays);
+
+    return toDateTimeLocalValue(startsAt);
 };
 
 export default function RentalsIndex({
@@ -124,6 +161,8 @@ export default function RentalsIndex({
     seasonRules,
     paymentMethodOptions,
     recentRentals,
+    rentalFilters,
+    recentRentalPagination,
     rentalSummary,
 }: {
     customers: CustomerOption[];
@@ -131,42 +170,76 @@ export default function RentalsIndex({
     seasonRules: SeasonRuleItem[];
     paymentMethodOptions: PaymentMethodOption[];
     recentRentals: RecentRentalItem[];
+    rentalFilters: RentalFilters;
+    recentRentalPagination: RecentRentalPagination;
     rentalSummary: RentalSummary;
 }) {
     const { flash } = usePage<SharedData>().props;
     const [unitSearch, setUnitSearch] = useState('');
-    const defaultStartAt = buildDefaultStartAt();
-    const defaultDueAt = buildDefaultDueAt(defaultStartAt);
-    const noMasterData = customers.length === 0 || availableUnits.length === 0;
-    const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
-    const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
+    const startsAtDefault = defaultStartAt();
+    const dueAtDefault = calculateDueAtValue(startsAtDefault, '1');
 
     const createForm = useForm<RentalForm>({
-        customer_id: customers[0] ? String(customers[0].id) : '',
-        starts_at: toDateTimeLocalValue(defaultStartAt),
-        due_at: toDateTimeLocalValue(defaultDueAt),
+        customer_id: '',
+        customer_name: '',
+        customer_phone_whatsapp: '',
+        customer_address: '',
+        starts_at: startsAtDefault,
+        rental_days: '1',
+        due_at: dueAtDefault,
         inventory_unit_ids: [],
         paid_amount: '0',
-        payment_method: paymentMethodOptions[0]?.value ?? '',
+        payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
         payment_notes: '',
+        dp_override_reason: '',
         notes: '',
     });
 
-    const selectedCustomer = useMemo(
-        () => customers.find((customer) => String(customer.id) === createForm.data.customer_id) ?? null,
-        [createForm.data.customer_id, customers],
+    const recentFilterForm = useForm({
+        recent_search: rentalFilters.recent_search,
+        recent_per_page: String(rentalFilters.recent_per_page),
+    });
+
+    const computedDueAt = useMemo(
+        () => calculateDueAtValue(createForm.data.starts_at, createForm.data.rental_days),
+        [createForm.data.rental_days, createForm.data.starts_at],
     );
+
+    useEffect(() => {
+        if (computedDueAt !== '' && computedDueAt !== createForm.data.due_at) {
+            createForm.setData('due_at', computedDueAt);
+        }
+    }, [computedDueAt]);
+
+    const exactCustomerMatch = useMemo(
+        () => customers.find((customer) => customer.phone_whatsapp.trim() === createForm.data.customer_phone_whatsapp.trim()) ?? null,
+        [createForm.data.customer_phone_whatsapp, customers],
+    );
+
+    useEffect(() => {
+        createForm.setData('customer_id', exactCustomerMatch ? String(exactCustomerMatch.id) : '');
+    }, [exactCustomerMatch]);
+
+    const customerSuggestions = useMemo(() => {
+        const query = `${createForm.data.customer_name} ${createForm.data.customer_phone_whatsapp}`.trim().toLowerCase();
+
+        if (query.length < 2) {
+            return [];
+        }
+
+        return customers
+            .filter((customer) => `${customer.name} ${customer.phone_whatsapp}`.toLowerCase().includes(query))
+            .slice(0, 5);
+    }, [createForm.data.customer_name, createForm.data.customer_phone_whatsapp, customers]);
 
     const filteredUnits = useMemo(() => {
         const query = unitSearch.trim().toLowerCase();
 
-        return availableUnits.filter((unit) => {
-            if (query === '') {
-                return true;
-            }
-
-            return [unit.product_name ?? '', unit.unit_code, unit.status_label, unit.notes ?? ''].join(' ').toLowerCase().includes(query);
-        });
+        return availableUnits.filter((unit) =>
+            query === ''
+                ? true
+                : [unit.product_name ?? '', unit.unit_code, unit.status_label, unit.notes ?? ''].join(' ').toLowerCase().includes(query),
+        );
     }, [availableUnits, unitSearch]);
 
     const groupedUnits = useMemo(
@@ -175,6 +248,7 @@ export default function RentalsIndex({
                 const key = unit.product_name ?? 'Produk tanpa nama';
                 groups[key] ??= [];
                 groups[key].push(unit);
+
                 return groups;
             }, {}),
         [filteredUnits],
@@ -185,19 +259,11 @@ export default function RentalsIndex({
         [availableUnits, createForm.data.inventory_unit_ids],
     );
 
-    const totalDays = useMemo(() => {
-        if (!createForm.data.starts_at || !createForm.data.due_at) {
-            return 0;
-        }
-
-        const startsAt = new Date(createForm.data.starts_at);
-        const dueAt = new Date(createForm.data.due_at);
-        if (Number.isNaN(startsAt.getTime()) || Number.isNaN(dueAt.getTime()) || dueAt <= startsAt) {
-            return 0;
-        }
-
-        return Math.max(1, Math.ceil((dueAt.getTime() - startsAt.getTime()) / (1000 * 60 * 60 * 24)));
-    }, [createForm.data.due_at, createForm.data.starts_at]);
+    const totalDays = Math.max(0, Number(createForm.data.rental_days || 0));
+    const selectedPaymentMethod = useMemo(
+        () => paymentMethodOptions.find((option) => option.value === createForm.data.payment_method_config_id) ?? null,
+        [createForm.data.payment_method_config_id, paymentMethodOptions],
+    );
 
     const matchedSeasonRule = useMemo(() => {
         const rentalDate = createForm.data.starts_at.slice(0, 10);
@@ -226,20 +292,21 @@ export default function RentalsIndex({
     const paidAmount = Number(createForm.data.paid_amount || 0);
     const remainingAmount = Math.max(0, subtotal - paidAmount);
     const isDpSeason = matchedSeasonRule?.dp_required === true;
-    const hasRentalDraft = selectedUnits.length > 0 && totalDays > 0 && subtotal > 0;
-    const dpRequirementUnmet = isDpSeason && hasRentalDraft && paidAmount < requiredDpAmount;
-    const dpAlertTitle = isDpSeason
-        ? dpRequirementUnmet
-            ? 'High Season Aktif: DP Belum Cukup'
-            : 'High Season Aktif: DP Wajib'
-        : null;
-    const dpAlertDescription = !isDpSeason
-        ? null
-        : !hasRentalDraft
-          ? `Tanggal sewa masuk season ${matchedSeasonRule?.name}. DP akan diwajibkan setelah unit dan durasi sewa dipilih.`
-          : dpRequirementUnmet
-            ? `Tanggal sewa masuk season ${matchedSeasonRule?.name}. Minimal pembayaran awal ${formatCurrency(requiredDpAmount)} dan saat ini baru ${formatCurrency(paidAmount)}.`
-            : `Tanggal sewa masuk season ${matchedSeasonRule?.name}. Minimal pembayaran awal ${formatCurrency(requiredDpAmount)} dan pembayaran awal sudah memenuhi syarat.`;
+    const dpRequirementUnmet = isDpSeason && selectedUnits.length > 0 && totalDays > 0 && subtotal > 0 && paidAmount < requiredDpAmount;
+    const noMasterData = availableUnits.length === 0;
+
+    const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
+    const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
+
+    const pickSuggestedCustomer = (customer: CustomerOption) => {
+        createForm.setData({
+            ...createForm.data,
+            customer_id: String(customer.id),
+            customer_name: customer.name,
+            customer_phone_whatsapp: customer.phone_whatsapp,
+            customer_address: customer.address ?? '',
+        });
+    };
 
     const toggleUnit = (unitId: number, checked: boolean) => {
         if (checked) {
@@ -247,18 +314,62 @@ export default function RentalsIndex({
             return;
         }
 
-        createForm.setData(
-            'inventory_unit_ids',
-            createForm.data.inventory_unit_ids.filter((selectedId) => selectedId !== unitId),
-        );
+        createForm.setData('inventory_unit_ids', createForm.data.inventory_unit_ids.filter((selectedId) => selectedId !== unitId));
     };
 
     const submitCreate: FormEventHandler = (event) => {
         event.preventDefault();
+
         createForm.post(route('admin.rentals.store'), {
             preserveScroll: true,
         });
     };
+
+    const submitRecentFilters: FormEventHandler = (event) => {
+        event.preventDefault();
+
+        router.get(
+            route('admin.rentals.index'),
+            {
+                recent_search: recentFilterForm.data.recent_search || undefined,
+                recent_per_page: recentFilterForm.data.recent_per_page,
+            },
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+    };
+
+    const resetRecentFilters = () => {
+        recentFilterForm.setData({
+            recent_search: '',
+            recent_per_page: '10',
+        });
+
+        router.get(route('admin.rentals.index'), { recent_per_page: 10 }, { preserveState: true, preserveScroll: true, replace: true });
+    };
+
+    const goToRecentPage = (page: number) => {
+        router.get(
+            route('admin.rentals.index'),
+            {
+                recent_search: rentalFilters.recent_search || undefined,
+                recent_per_page: rentalFilters.recent_per_page,
+                page,
+            },
+            { preserveState: true, preserveScroll: true, replace: true },
+        );
+    };
+
+    const rentalPaginationPages = useMemo(() => {
+        if (recentRentalPagination.last_page <= 1) {
+            return [1];
+        }
+
+        const start = Math.max(1, recentRentalPagination.current_page - 2);
+        const end = Math.min(recentRentalPagination.last_page, start + 4);
+        const normalizedStart = Math.max(1, end - 4);
+
+        return Array.from({ length: end - normalizedStart + 1 }, (_, index) => normalizedStart + index);
+    }, [recentRentalPagination.current_page, recentRentalPagination.last_page]);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -269,7 +380,7 @@ export default function RentalsIndex({
                     <p className="text-muted-foreground text-sm">Transaksi rental outdoor</p>
                     <h1 className="mt-2 text-2xl font-semibold">Penyewaan</h1>
                     <p className="text-muted-foreground mt-3 max-w-3xl text-sm leading-6">
-                        Pilih customer, tentukan durasi sewa, ambil unit yang ready, lalu sistem otomatis menyiapkan bukti sewa dan mengurangi stok yang tersedia.
+                        Customer bisa langsung diinput dari form sewa, lalu sistem akan menyesuaikan tanggal kembali otomatis berdasarkan durasi.
                     </p>
                 </section>
 
@@ -281,9 +392,9 @@ export default function RentalsIndex({
                 )}
 
                 {noMasterData && (
-                    <Alert>
-                        <AlertTitle>Master data belum lengkap</AlertTitle>
-                        <AlertDescription>Pastikan customer dan unit inventaris yang ready sudah tersedia sebelum membuat penyewaan.</AlertDescription>
+                    <Alert variant="destructive">
+                        <AlertTitle>Unit inventaris belum tersedia</AlertTitle>
+                        <AlertDescription>Pastikan ada unit inventaris yang ready sebelum membuat penyewaan.</AlertDescription>
                     </Alert>
                 )}
 
@@ -306,57 +417,104 @@ export default function RentalsIndex({
                     </div>
                 </div>
 
-                <div className="grid gap-6 xl:grid-cols-[1.4fr_0.95fr]">
+                <div className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">
                     <Card>
                         <CardHeader>
                             <CardTitle>Buat Penyewaan</CardTitle>
-                            <CardDescription>Unit dengan status belum dicuci tetap bisa dipilih jika customer setuju.</CardDescription>
+                            <CardDescription>Unit belum dicuci tetap bisa dipilih jika customer setuju.</CardDescription>
                         </CardHeader>
                         <CardContent>
                             <form className="grid gap-6" onSubmit={submitCreate}>
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="rental-customer">Customer</Label>
-                                        <Select value={createForm.data.customer_id || 'placeholder'} onValueChange={(value) => createForm.setData('customer_id', value === 'placeholder' ? '' : value)} disabled={customers.length === 0}>
-                                            <SelectTrigger id="rental-customer">
-                                                <SelectValue placeholder="Pilih customer" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {customers.length > 0 ? customers.map((customer) => (
-                                                    <SelectItem key={customer.id} value={String(customer.id)}>
-                                                        {customer.name} • {customer.phone_whatsapp}
-                                                    </SelectItem>
-                                                )) : <SelectItem value="placeholder" disabled>Belum ada customer</SelectItem>}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError message={createForm.errors.customer_id} />
+                                <div className="grid gap-4 md:grid-cols-[1.2fr_0.8fr]">
+                                    <div className="grid gap-4">
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="customer-name">Nama Customer</Label>
+                                            <Input id="customer-name" value={createForm.data.customer_name} onChange={(event) => createForm.setData('customer_name', event.target.value)} />
+                                            <InputError message={createForm.errors.customer_name} />
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="customer-phone">Nomor WhatsApp</Label>
+                                            <Input id="customer-phone" value={createForm.data.customer_phone_whatsapp} onChange={(event) => createForm.setData('customer_phone_whatsapp', event.target.value)} />
+                                            <InputError message={createForm.errors.customer_phone_whatsapp} />
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="customer-address">Alamat</Label>
+                                            <Textarea id="customer-address" rows={3} value={createForm.data.customer_address} onChange={(event) => createForm.setData('customer_address', event.target.value)} />
+                                            <InputError message={createForm.errors.customer_address} />
+                                        </div>
+
+                                        {customerSuggestions.length > 0 && (
+                                            <div className="rounded-2xl border border-dashed p-4">
+                                                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                                                    <UserRoundSearch className="h-4 w-4" />
+                                                    Gunakan customer lama
+                                                </div>
+                                                <div className="grid gap-2">
+                                                    {customerSuggestions.map((customer) => (
+                                                        <button key={customer.id} type="button" onClick={() => pickSuggestedCustomer(customer)} className="hover:border-primary/40 rounded-xl border p-3 text-left transition">
+                                                            <p className="font-medium">{customer.name}</p>
+                                                            <p className="text-muted-foreground text-sm">{customer.phone_whatsapp}</p>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
 
-                                    <div className="grid gap-2 rounded-2xl border p-4 text-sm">
-                                        <p className="text-muted-foreground text-xs uppercase tracking-wide">Customer Terpilih</p>
-                                        <p className="mt-2 font-medium">{selectedCustomer?.name ?? 'Belum dipilih'}</p>
-                                        <p className="text-muted-foreground">{selectedCustomer?.phone_whatsapp ?? '-'}</p>
+                                    <div className="rounded-2xl border p-4 text-sm">
+                                        <p className="text-muted-foreground text-xs uppercase tracking-wide">Penilaian Customer</p>
+                                        {exactCustomerMatch ? (
+                                            <div className="mt-3 space-y-2">
+                                                <p className="font-medium">{exactCustomerMatch.name}</p>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-muted-foreground">Rating</span>
+                                                    <Badge variant="outline">{exactCustomerMatch.rating?.label ?? 'Cukup'}</Badge>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-muted-foreground">Skor</span>
+                                                    <span>{exactCustomerMatch.rating?.score ?? 60}/100</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-muted-foreground">Overdue</span>
+                                                    <span>{exactCustomerMatch.rating?.overdue_returns ?? 0}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="text-muted-foreground">Reject/Rusak</span>
+                                                    <span>{exactCustomerMatch.rating?.damaged_returns ?? 0}</span>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="text-muted-foreground mt-3 leading-6">Kalau nomor WhatsApp cocok dengan customer lama, rating historinya akan tampil di sini.</p>
+                                        )}
                                     </div>
                                 </div>
 
-                                <div className="grid gap-4 md:grid-cols-2">
+                                <div className="grid gap-4 md:grid-cols-3">
                                     <div className="grid gap-2">
                                         <Label htmlFor="starts-at">Mulai Sewa</Label>
                                         <Input id="starts-at" type="datetime-local" value={createForm.data.starts_at} onChange={(event) => createForm.setData('starts_at', event.target.value)} />
                                         <InputError message={createForm.errors.starts_at} />
                                     </div>
-
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="rental-days">Lama Sewa (Hari)</Label>
+                                        <Input id="rental-days" type="number" min="1" value={createForm.data.rental_days} onChange={(event) => createForm.setData('rental_days', event.target.value)} />
+                                        <InputError message={createForm.errors.rental_days} />
+                                    </div>
                                     <div className="grid gap-2">
                                         <Label htmlFor="due-at">Harus Kembali</Label>
-                                        <Input id="due-at" type="datetime-local" value={createForm.data.due_at} onChange={(event) => createForm.setData('due_at', event.target.value)} />
+                                        <Input id="due-at" type="datetime-local" value={createForm.data.due_at} readOnly />
                                         <InputError message={createForm.errors.due_at} />
                                     </div>
                                 </div>
 
-                                {isDpSeason && dpAlertTitle && dpAlertDescription && (
+                                {isDpSeason && (
                                     <Alert variant={dpRequirementUnmet ? 'destructive' : 'default'}>
-                                        <AlertTitle>{dpAlertTitle}</AlertTitle>
-                                        <AlertDescription>{dpAlertDescription}</AlertDescription>
+                                        <AlertTitle>{dpRequirementUnmet ? 'High Season: DP Di Bawah Rekomendasi' : 'High Season Aktif'}</AlertTitle>
+                                        <AlertDescription>
+                                            {dpRequirementUnmet
+                                                ? `Masuk season ${matchedSeasonRule?.name}. Rekomendasi DP ${formatCurrency(requiredDpAmount)}. Isi alasan override kalau mau lanjut.`
+                                                : `Masuk season ${matchedSeasonRule?.name}. Rekomendasi DP ${formatCurrency(requiredDpAmount)}.`}
+                                        </AlertDescription>
                                     </Alert>
                                 )}
 
@@ -366,9 +524,8 @@ export default function RentalsIndex({
                                             <h2 className="text-lg font-semibold">Pilih Unit Inventaris</h2>
                                             <p className="text-muted-foreground text-sm">Tersedia {availableUnits.length} unit ready dari stok saat ini.</p>
                                         </div>
-
                                         <div className="relative w-full md:max-w-xs">
-                                            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                                            <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
                                             <Input value={unitSearch} onChange={(event) => setUnitSearch(event.target.value)} placeholder="Cari unit atau produk" className="pl-9" />
                                         </div>
                                     </div>
@@ -390,9 +547,13 @@ export default function RentalsIndex({
                                                                 const isSelected = createForm.data.inventory_unit_ids.includes(unit.id);
 
                                                                 return (
-                                                                    <label key={unit.id} className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition ${isSelected ? 'border-primary bg-primary/5' : 'hover:border-primary/40'}`}>
+                                                                    <label
+                                                                        key={unit.id}
+                                                                        className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition ${
+                                                                            isSelected ? 'border-primary bg-primary/5' : 'hover:border-primary/40'
+                                                                        }`}
+                                                                    >
                                                                         <Checkbox checked={isSelected} onCheckedChange={(checked) => toggleUnit(unit.id, checked === true)} />
-
                                                                         <div className="grid flex-1 gap-2">
                                                                             <div className="flex flex-wrap items-center gap-2">
                                                                                 <p className="font-medium">{unit.unit_code}</p>
@@ -414,165 +575,159 @@ export default function RentalsIndex({
                                     </div>
                                 </div>
 
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="paid-amount">Pembayaran Awal</Label>
-                                        <Input id="paid-amount" type="number" min="0" step="1000" value={createForm.data.paid_amount} onChange={(event) => createForm.setData('paid_amount', event.target.value)} placeholder="0" />
-                                        <p className="text-muted-foreground text-xs">Bisa nol untuk regular season, atau minimal sesuai DP saat high season.</p>
-                                        <InputError message={createForm.errors.paid_amount} />
+                                <div className="grid gap-4 md:grid-cols-[1fr_0.9fr]">
+                                    <div className="grid gap-4">
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="payment-method-config">Metode Pembayaran</Label>
+                                            <Select value={createForm.data.payment_method_config_id || 'none'} onValueChange={(value) => createForm.setData('payment_method_config_id', value === 'none' ? '' : value)}>
+                                                <SelectTrigger id="payment-method-config">
+                                                    <SelectValue placeholder="Pilih metode pembayaran" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">Belum dipilih</SelectItem>
+                                                    {paymentMethodOptions.map((option) => (
+                                                        <SelectItem key={option.value} value={option.value}>
+                                                            {option.label} • {option.type_label}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            <InputError message={createForm.errors.payment_method_config_id} />
+                                        </div>
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="paid-amount">Pembayaran Awal</Label>
+                                            <Input id="paid-amount" type="number" min="0" step="1000" value={createForm.data.paid_amount} onChange={(event) => createForm.setData('paid_amount', event.target.value)} />
+                                            <InputError message={createForm.errors.paid_amount} />
+                                        </div>
+
+                                        {dpRequirementUnmet && (
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="dp-override-reason">Alasan Override DP</Label>
+                                                <Textarea id="dp-override-reason" rows={3} value={createForm.data.dp_override_reason} onChange={(event) => createForm.setData('dp_override_reason', event.target.value)} />
+                                                <InputError message={createForm.errors.dp_override_reason} />
+                                            </div>
+                                        )}
+
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="payment-notes">Catatan Pembayaran</Label>
+                                            <Textarea id="payment-notes" rows={3} value={createForm.data.payment_notes} onChange={(event) => createForm.setData('payment_notes', event.target.value)} />
+                                            <InputError message={createForm.errors.payment_notes} />
+                                        </div>
                                     </div>
 
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="payment-method">Metode Pembayaran</Label>
-                                        <Select value={createForm.data.payment_method || 'placeholder'} onValueChange={(value) => createForm.setData('payment_method', value === 'placeholder' ? '' : value)}>
-                                            <SelectTrigger id="payment-method">
-                                                <SelectValue placeholder="Pilih metode" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {paymentMethodOptions.length > 0 ? paymentMethodOptions.map((option) => (
-                                                    <SelectItem key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </SelectItem>
-                                                )) : <SelectItem value="placeholder" disabled>Belum ada metode</SelectItem>}
-                                            </SelectContent>
-                                        </Select>
-                                        <InputError message={createForm.errors.payment_method} />
+                                    <div className="grid gap-4">
+                                        <div className="rounded-2xl border p-4 text-sm">
+                                            <p className="text-muted-foreground text-xs uppercase tracking-wide">Metode Terpilih</p>
+                                            {selectedPaymentMethod ? (
+                                                <div className="mt-3 space-y-2">
+                                                    <p className="font-medium">{selectedPaymentMethod.label}</p>
+                                                    {selectedPaymentMethod.type === 'transfer' && (
+                                                        <div className="rounded-xl border bg-muted/20 p-3">
+                                                            <p>{selectedPaymentMethod.bank_name}</p>
+                                                            <p className="font-medium">{selectedPaymentMethod.account_number}</p>
+                                                            <p className="text-muted-foreground">{selectedPaymentMethod.account_name}</p>
+                                                        </div>
+                                                    )}
+                                                    {selectedPaymentMethod.type === 'qris' && selectedPaymentMethod.qr_image_path && (
+                                                        <img src={selectedPaymentMethod.qr_image_path} alt={selectedPaymentMethod.label} className="h-40 w-40 rounded-xl border object-contain p-2" />
+                                                    )}
+                                                    {selectedPaymentMethod.instructions && <p className="text-muted-foreground leading-6">{selectedPaymentMethod.instructions}</p>}
+                                                </div>
+                                            ) : (
+                                                <p className="text-muted-foreground mt-3">Pilih metode pembayaran agar instruksi tampil di invoice.</p>
+                                            )}
+                                        </div>
+
+                                        <div className="rounded-2xl border p-4 text-sm">
+                                            <p className="text-muted-foreground text-xs uppercase tracking-wide">Ringkasan Sewa</p>
+                                            <div className="mt-3 grid gap-2">
+                                                <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Unit Dipilih</span><span>{selectedUnits.length}</span></div>
+                                                <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Durasi</span><span>{totalDays} hari</span></div>
+                                                <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Total</span><span>{formatCurrency(subtotal)}</span></div>
+                                                {isDpSeason && <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">DP Rekomendasi</span><span>{formatCurrency(requiredDpAmount)}</span></div>}
+                                                <div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Dibayar</span><span>{formatCurrency(paidAmount)}</span></div>
+                                                <div className="flex items-center justify-between gap-3 border-t pt-3 font-medium"><span>Sisa</span><span>{formatCurrency(remainingAmount)}</span></div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div className="grid gap-4 md:grid-cols-2">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="payment-notes">Catatan Pembayaran</Label>
-                                        <Textarea id="payment-notes" value={createForm.data.payment_notes} onChange={(event) => createForm.setData('payment_notes', event.target.value)} placeholder="Contoh: DP via transfer" />
-                                        <InputError message={createForm.errors.payment_notes} />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="rental-notes">Catatan Transaksi</Label>
-                                        <Textarea id="rental-notes" value={createForm.data.notes} onChange={(event) => createForm.setData('notes', event.target.value)} placeholder="Catatan tambahan untuk admin" />
-                                        <InputError message={createForm.errors.notes} />
-                                    </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="rental-notes">Catatan Transaksi</Label>
+                                    <Textarea id="rental-notes" rows={3} value={createForm.data.notes} onChange={(event) => createForm.setData('notes', event.target.value)} />
+                                    <InputError message={createForm.errors.notes} />
                                 </div>
 
-                                <Button type="submit" className="w-full md:w-auto" disabled={createForm.processing || noMasterData || dpRequirementUnmet}>
-                                    {createForm.processing && <LoaderCircle className="h-4 w-4 animate-spin" />}
-                                    Simpan Penyewaan
-                                </Button>
+                                <div className="flex justify-end">
+                                    <Button type="submit" disabled={createForm.processing || noMasterData || selectedUnits.length === 0 || totalDays <= 0 || (dpRequirementUnmet && createForm.data.dp_override_reason.trim() === '')}>
+                                        {createForm.processing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                                        Simpan Penyewaan
+                                    </Button>
+                                </div>
                             </form>
                         </CardContent>
                     </Card>
 
-                    <div className="grid gap-6">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Ringkasan Transaksi</CardTitle>
-                                <CardDescription>Perhitungan akan mengikuti tanggal sewa, pilihan unit, dan season aktif.</CardDescription>
-                            </CardHeader>
-                            <CardContent className="grid gap-4">
-                                <div className="rounded-2xl border p-4">
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Unit Dipilih</p>
-                                    <p className="mt-2 text-2xl font-semibold">{selectedUnits.length}</p>
-                                </div>
-                                <div className="rounded-2xl border p-4">
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Total Hari</p>
-                                    <p className="mt-2 text-2xl font-semibold">{totalDays}</p>
-                                </div>
-                                <div className="rounded-2xl border p-4">
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Subtotal</p>
-                                    <p className="mt-2 text-2xl font-semibold">{formatCurrency(subtotal)}</p>
-                                </div>
-                                <div className="rounded-2xl border p-4">
-                                    <p className="text-muted-foreground text-xs uppercase tracking-wide">Season Aktif</p>
-                                    <p className="mt-2 font-semibold">{matchedSeasonRule?.name ?? 'Regular Season / tanpa rule'}</p>
-                                    <p className="text-muted-foreground mt-2 text-sm">{matchedSeasonRule?.dp_required ? `DP wajib ${matchedSeasonRule.dp_type === 'percentage' ? `${matchedSeasonRule.dp_value}%` : formatCurrency(matchedSeasonRule.dp_value ?? 0)}` : 'Tidak wajib DP'}</p>
-                                </div>
-                                <div className="rounded-2xl border p-4 text-sm">
-                                    <div className="flex items-center justify-between gap-4">
-                                        <span className="text-muted-foreground">Minimal DP</span>
-                                        <span className="font-medium">{formatCurrency(requiredDpAmount)}</span>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-between gap-4">
-                                        <span className="text-muted-foreground">Dibayar Sekarang</span>
-                                        <span className="font-medium">{formatCurrency(paidAmount)}</span>
-                                    </div>
-                                    <div className="mt-3 flex items-center justify-between gap-4">
-                                        <span className="text-muted-foreground">Sisa Tagihan</span>
-                                        <span className="font-medium">{formatCurrency(remainingAmount)}</span>
-                                    </div>
-                                </div>
-                                <div className="rounded-2xl border p-4">
-                                    <p className="font-medium">Daftar Unit</p>
-                                    {selectedUnits.length > 0 ? (
-                                        <div className="mt-3 grid gap-2">
-                                            {selectedUnits.map((unit) => (
-                                                <div key={unit.id} className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2">
-                                                    <div>
-                                                        <p className="font-medium">{unit.unit_code}</p>
-                                                        <p className="text-muted-foreground text-xs">{unit.product_name}</p>
-                                                    </div>
-                                                    <Badge variant={unit.status === 'ready_unclean' ? 'secondary' : 'outline'}>{unit.status_label}</Badge>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <p className="text-muted-foreground mt-3 text-sm">Belum ada unit yang dipilih.</p>
-                                    )}
-                                </div>
-                            </CardContent>
-                        </Card>
-
-                        <Card>
-                            <CardHeader>
+                    <Card>
+                        <CardHeader className="gap-4">
+                            <div>
                                 <CardTitle>Rental Terbaru</CardTitle>
-                                <CardDescription>Bukti sewa yang baru dibuat akan muncul di daftar ini.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                {recentRentals.length > 0 ? (
-                                    <div className="grid gap-3">
-                                        {recentRentals.map((rental) => (
-                                            <div key={rental.id} className="rounded-2xl border p-4">
-                                                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                                    <div>
-                                                        <p className="font-semibold">{rental.rental_no}</p>
-                                                        <p className="text-muted-foreground mt-1 text-sm">{rental.customer_name ?? '-'} • {rental.items_count} item</p>
-                                                        <p className="text-muted-foreground mt-1 text-xs">{formatDateTime(rental.starts_at)} sampai {formatDateTime(rental.due_at)}</p>
-                                                    </div>
-                                                    <div className="flex flex-wrap gap-2">
-                                                        <Badge variant="outline">{rental.rental_status_label}</Badge>
-                                                        <Badge variant={rental.payment_status === 'paid' ? 'default' : 'secondary'}>{rental.payment_status_label}</Badge>
-                                                    </div>
-                                                </div>
-
-                                                <div className="mt-4 grid gap-2 text-sm">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <span className="text-muted-foreground">Subtotal</span>
-                                                        <span>{formatCurrency(rental.subtotal)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <span className="text-muted-foreground">Sudah Dibayar</span>
-                                                        <span>{formatCurrency(rental.paid_amount)}</span>
-                                                    </div>
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <span className="text-muted-foreground">Sisa</span>
-                                                        <span>{formatCurrency(rental.remaining_amount)}</span>
-                                                    </div>
-                                                </div>
-
-                                                <Button asChild variant="outline" className="mt-4 w-full">
-                                                    <Link href={route('admin.rentals.show', rental.id)}>
-                                                        <FileText className="h-4 w-4" />
-                                                        Lihat Bukti Sewa
-                                                    </Link>
-                                                </Button>
+                                <CardDescription>Atur jumlah baris dan cari transaksi terbaru dengan cepat.</CardDescription>
+                            </div>
+                            <form className="grid gap-3 md:grid-cols-[1fr_10rem_auto_auto]" onSubmit={submitRecentFilters}>
+                                <div className="relative">
+                                    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                                    <Input value={recentFilterForm.data.recent_search} onChange={(event) => recentFilterForm.setData('recent_search', event.target.value)} className="pl-9" placeholder="Cari rental / customer" />
+                                </div>
+                                <Select value={recentFilterForm.data.recent_per_page} onValueChange={(value) => recentFilterForm.setData('recent_per_page', value)}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {[10, 15, 25, 50].map((option) => <SelectItem key={option} value={String(option)}>{option} baris</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                <Button type="submit">Terapkan</Button>
+                                <Button type="button" variant="outline" onClick={resetRecentFilters}><X className="mr-2 h-4 w-4" />Reset</Button>
+                            </form>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="text-muted-foreground text-sm">
+                                {recentRentalPagination.total > 0 ? `Menampilkan ${recentRentalPagination.from}-${recentRentalPagination.to} dari ${recentRentalPagination.total} rental` : 'Belum ada transaksi rental'}
+                            </div>
+                            <div className="grid max-h-[32rem] gap-3 overflow-auto">
+                                {recentRentals.length > 0 ? recentRentals.map((rental) => (
+                                    <div key={rental.id} className="rounded-2xl border p-4">
+                                        <div className="flex flex-wrap items-start justify-between gap-3">
+                                            <div>
+                                                <p className="font-semibold">{rental.rental_no}</p>
+                                                <p className="text-muted-foreground mt-1 text-sm">{rental.customer_name ?? '-'} • {rental.items_count} item</p>
                                             </div>
-                                        ))}
+                                            <Badge variant="outline">{rental.rental_status_label}</Badge>
+                                        </div>
+                                        <div className="text-muted-foreground mt-3 grid gap-1 text-xs">
+                                            <p>{formatDateTime(rental.starts_at)} sampai {formatDateTime(rental.due_at)}</p>
+                                            <p>Total {formatCurrency(rental.subtotal)} • Dibayar {formatCurrency(rental.paid_amount)} • Sisa {formatCurrency(rental.remaining_amount)}</p>
+                                            <p>Status bayar: {rental.payment_status_label}</p>
+                                        </div>
+                                        <Button asChild variant="outline" className="mt-4 w-full">
+                                            <Link href={route('admin.rentals.show', rental.id)}>Buka Invoice</Link>
+                                        </Button>
                                     </div>
-                                ) : (
-                                    <div className="text-muted-foreground rounded-2xl border border-dashed p-6 text-sm">Belum ada transaksi penyewaan.</div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
+                                )) : <div className="text-muted-foreground rounded-2xl border border-dashed p-6 text-sm">Belum ada rental yang cocok dengan filter saat ini.</div>}
+                            </div>
+
+                            {recentRentalPagination.last_page > 1 && (
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <p className="text-muted-foreground text-sm">Halaman {recentRentalPagination.current_page} dari {recentRentalPagination.last_page}</p>
+                                    <div className="flex items-center gap-2">
+                                        <Button type="button" variant="outline" size="icon" disabled={recentRentalPagination.current_page <= 1} onClick={() => goToRecentPage(recentRentalPagination.current_page - 1)}><ChevronLeft className="h-4 w-4" /></Button>
+                                        {rentalPaginationPages.map((page) => <Button key={page} type="button" variant={page === recentRentalPagination.current_page ? 'default' : 'outline'} size="sm" onClick={() => goToRecentPage(page)}>{page}</Button>)}
+                                        <Button type="button" variant="outline" size="icon" disabled={recentRentalPagination.current_page >= recentRentalPagination.last_page} onClick={() => goToRecentPage(recentRentalPagination.current_page + 1)}><ChevronRight className="h-4 w-4" /></Button>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         </AppLayout>

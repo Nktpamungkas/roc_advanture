@@ -4,6 +4,7 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Customer;
 use App\Models\InventoryUnit;
+use App\Models\PaymentMethodConfig;
 use App\Models\Product;
 use App\Models\Rental;
 use App\Models\SeasonRule;
@@ -73,13 +74,20 @@ class RentalManagementTest extends TestCase
             'status' => InventoryUnitStatuses::READY_UNCLEAN,
         ]);
 
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Kasir Tunai',
+            'type' => 'cash',
+            'code' => 'cash',
+            'active' => true,
+        ]);
+
         $response = $this->actingAs($admin)->post(route('admin.rentals.store'), [
             'customer_id' => $customer->id,
             'starts_at' => '2026-04-01 19:00:00',
-            'due_at' => '2026-04-03 19:00:00',
+            'rental_days' => 2,
             'inventory_unit_ids' => [$cleanUnit->id, $uncleanUnit->id],
             'paid_amount' => 100000,
-            'payment_method' => 'cash',
+            'payment_method_config_id' => $paymentMethod->id,
             'payment_notes' => 'DP cash di awal',
             'notes' => 'Customer ambil malam hari.',
         ]);
@@ -114,6 +122,7 @@ class RentalManagementTest extends TestCase
         $this->assertDatabaseHas('payments', [
             'rental_id' => $rental->id,
             'received_by' => $admin->id,
+            'payment_method_config_id' => $paymentMethod->id,
             'payment_kind' => PaymentKinds::DP,
             'amount' => 100000,
             'method' => 'cash',
@@ -152,6 +161,16 @@ class RentalManagementTest extends TestCase
             'status' => InventoryUnitStatuses::READY_CLEAN,
         ]);
 
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Transfer BCA',
+            'type' => 'transfer',
+            'code' => 'bca-transfer',
+            'bank_name' => 'BCA',
+            'account_number' => '1234567890',
+            'account_name' => 'Roc Advanture',
+            'active' => true,
+        ]);
+
         SeasonRule::query()->create([
             'name' => 'High Season Lebaran',
             'start_date' => '2026-04-01',
@@ -167,18 +186,82 @@ class RentalManagementTest extends TestCase
             ->post(route('admin.rentals.store'), [
                 'customer_id' => $customer->id,
                 'starts_at' => '2026-04-05 08:00:00',
-                'due_at' => '2026-04-07 08:00:00',
+                'rental_days' => 2,
                 'inventory_unit_ids' => [$unit->id],
                 'paid_amount' => 50000,
-                'payment_method' => 'transfer',
+                'payment_method_config_id' => $paymentMethod->id,
             ])
             ->assertRedirect(route('admin.rentals.index'))
-            ->assertSessionHasErrors('paid_amount');
+            ->assertSessionHasErrors('dp_override_reason');
 
         $this->assertDatabaseCount('rentals', 0);
         $this->assertDatabaseHas('inventory_units', [
             'id' => $unit->id,
             'status' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+    }
+
+    public function test_high_season_rental_can_be_overridden_with_reason_and_customer_created_from_form(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::SUPER_ADMIN);
+
+        $product = Product::query()->create([
+            'name' => 'Flysheet 4x6',
+            'category' => 'Flysheet',
+            'prefix_code' => 'FLS46',
+            'daily_rate' => 15000,
+            'active' => true,
+        ]);
+
+        $unit = InventoryUnit::query()->create([
+            'product_id' => $product->id,
+            'unit_code' => 'FLS46-001',
+            'status' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'QRIS Toko',
+            'type' => 'qris',
+            'code' => 'qris-toko',
+            'qr_image_path' => '/uploads/payment-methods/qris.png',
+            'active' => true,
+        ]);
+
+        SeasonRule::query()->create([
+            'name' => 'High Season Lebaran',
+            'start_date' => '2026-04-01',
+            'end_date' => '2026-04-10',
+            'dp_required' => true,
+            'dp_type' => 'percentage',
+            'dp_value' => 50,
+            'active' => true,
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('admin.rentals.store'), [
+            'customer_name' => 'Customer Override',
+            'customer_phone_whatsapp' => '089999999999',
+            'customer_address' => 'Cikupa',
+            'starts_at' => '2026-04-05 08:00:00',
+            'rental_days' => 2,
+            'inventory_unit_ids' => [$unit->id],
+            'paid_amount' => 0,
+            'payment_method_config_id' => $paymentMethod->id,
+            'dp_override_reason' => 'Dispensasi owner',
+        ]);
+
+        $rental = Rental::query()->firstOrFail();
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+
+        $this->assertDatabaseHas('customers', [
+            'name' => 'Customer Override',
+            'phone_whatsapp' => '089999999999',
+        ]);
+
+        $this->assertDatabaseHas('rentals', [
+            'id' => $rental->id,
+            'dp_override_reason' => 'Dispensasi owner',
+            'payment_method_config_id' => $paymentMethod->id,
         ]);
     }
 

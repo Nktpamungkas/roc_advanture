@@ -16,16 +16,28 @@ class Rental extends Model
         'rental_no',
         'customer_id',
         'season_rule_id',
+        'payment_method_config_id',
+        'payment_method_name_snapshot',
+        'payment_method_type_snapshot',
+        'payment_qr_image_path_snapshot',
+        'payment_transfer_bank_snapshot',
+        'payment_transfer_account_number_snapshot',
+        'payment_transfer_account_name_snapshot',
+        'payment_instruction_snapshot',
         'created_by',
         'starts_at',
         'due_at',
         'total_days',
+        'final_total_days',
         'dp_required',
         'subtotal',
+        'final_subtotal',
         'dp_amount',
+        'dp_override_reason',
         'paid_amount',
         'remaining_amount',
         'payment_status',
+        'settlement_basis',
         'rental_status',
         'notes',
     ];
@@ -37,6 +49,7 @@ class Rental extends Model
             'due_at' => 'datetime',
             'dp_required' => 'boolean',
             'subtotal' => 'decimal:2',
+            'final_subtotal' => 'decimal:2',
             'dp_amount' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'remaining_amount' => 'decimal:2',
@@ -51,6 +64,11 @@ class Rental extends Model
     public function seasonRule(): BelongsTo
     {
         return $this->belongsTo(SeasonRule::class);
+    }
+
+    public function paymentMethodConfig(): BelongsTo
+    {
+        return $this->belongsTo(PaymentMethodConfig::class);
     }
 
     public function creator(): BelongsTo

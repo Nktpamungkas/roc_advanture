@@ -2,10 +2,12 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Models\PaymentMethodConfig;
 use App\Models\Rental;
 use App\Services\AdminAccessService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\RentalStatuses;
+use App\Support\Rental\SettlementBases;
 use Carbon\Carbon;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -26,6 +28,9 @@ class StoreRentalReturnRequest extends FormRequest
         return [
             'rental_id' => ['required', 'integer', 'exists:rentals,id'],
             'returned_at' => ['required', 'date'],
+            'settlement_basis' => ['required', 'string', Rule::in(SettlementBases::all())],
+            'payment_method_config_id' => ['nullable', 'integer', 'exists:payment_method_configs,id'],
+            'payment_notes' => ['nullable', 'string', 'max:5000'],
             'notes' => ['nullable', 'string', 'max:5000'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.rental_item_id' => ['required', 'integer', 'distinct', 'exists:rental_items,id'],
@@ -52,7 +57,7 @@ class StoreRentalReturnRequest extends FormRequest
             }
 
             $rental = Rental::query()
-                ->with(['items:id,rental_id', 'returnRecord'])
+                ->with(['items:id,rental_id,daily_rate_snapshot', 'returnRecord'])
                 ->find($rentalId);
 
             if ($rental === null) {
@@ -85,6 +90,7 @@ class StoreRentalReturnRequest extends FormRequest
                 $validator->errors()->add('items', 'Ada item pengembalian yang tidak cocok dengan transaksi yang dipilih.');
             }
 
+            $returnedAt = null;
             if ($this->filled('returned_at') && $rental->starts_at !== null) {
                 $returnedAt = Carbon::parse((string) $this->input('returned_at'));
 
@@ -102,6 +108,37 @@ class StoreRentalReturnRequest extends FormRequest
                         $validator->errors()->add("items.$index.notes", 'Catatan wajib diisi jika status lanjutan maintenance atau retired.');
                     }
                 });
+
+            $finalSubtotal = $this->calculateFinalSubtotal($rental, $returnedAt);
+            $remainingAmount = round(max(0, $finalSubtotal - (float) $rental->paid_amount), 2);
+
+            if ($remainingAmount > 0 && ! $this->filled('payment_method_config_id')) {
+                $validator->errors()->add('payment_method_config_id', 'Metode pembayaran pelunasan wajib dipilih.');
+            }
+
+            if ($this->filled('payment_method_config_id')) {
+                $paymentMethodConfig = PaymentMethodConfig::query()->find((int) $this->input('payment_method_config_id'));
+
+                if (! $paymentMethodConfig?->active) {
+                    $validator->errors()->add('payment_method_config_id', 'Metode pembayaran pelunasan yang dipilih tidak aktif.');
+                }
+            }
         });
+    }
+
+    private function calculateFinalSubtotal(Rental $rental, ?Carbon $returnedAt): float
+    {
+        $basis = (string) $this->input('settlement_basis', SettlementBases::CONTRACT);
+
+        if ($basis === SettlementBases::ACTUAL && $returnedAt !== null && $rental->starts_at !== null) {
+            $days = max(1, (int) ceil($rental->starts_at->diffInMinutes($returnedAt) / 1440));
+
+            return round(
+                $rental->items->sum(fn ($item) => ((float) $item->daily_rate_snapshot) * $days),
+                2,
+            );
+        }
+
+        return (float) ($rental->subtotal ?? 0);
     }
 }

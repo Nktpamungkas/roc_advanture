@@ -17,6 +17,10 @@ class RentalReturn extends Model
         'rental_id',
         'checked_by',
         'returned_at',
+        'charge_basis',
+        'final_total_days',
+        'final_subtotal',
+        'settlement_amount',
         'notes',
     ];
 
@@ -24,6 +28,8 @@ class RentalReturn extends Model
     {
         return [
             'returned_at' => 'datetime',
+            'final_subtotal' => 'decimal:2',
+            'settlement_amount' => 'decimal:2',
         ];
     }
 

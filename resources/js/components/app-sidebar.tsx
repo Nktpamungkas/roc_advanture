@@ -3,13 +3,14 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, Bath, CalendarDays, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
+import { Archive, BarChart3, Bath, CalendarDays, CreditCard, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
     const { auth } = usePage<SharedData>().props;
     const roleNames = auth.user?.role_names ?? [];
     const canManageUsers = roleNames.includes('super-admin') || roleNames.includes('admin-toko');
+    const isSuperAdmin = roleNames.includes('super-admin');
 
     const mainNavItems: NavItem[] = [
         {
@@ -28,6 +29,11 @@ export function AppSidebar() {
                       title: 'Pengembalian',
                       url: route('admin.returns.index'),
                       icon: RotateCcw,
+                  },
+                  {
+                      title: 'Laporan',
+                      url: route('admin.reports.index'),
+                      icon: BarChart3,
                   },
                   {
                       title: 'Produk',
@@ -54,6 +60,15 @@ export function AppSidebar() {
                       url: route('admin.season-rules.index'),
                       icon: CalendarDays,
                   },
+                  ...(isSuperAdmin
+                      ? [
+                            {
+                                title: 'Metode Pembayaran',
+                                url: route('admin.payment-methods.index'),
+                                icon: CreditCard,
+                            },
+                        ]
+                      : []),
                   {
                       title: 'User Management',
                       url: route('admin.users.index'),

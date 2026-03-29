@@ -21,4 +21,9 @@ class Customer extends Model
     {
         return $this->hasMany(Rental::class);
     }
+
+    public function displayLabel(): string
+    {
+        return trim($this->name.' - '.$this->phone_whatsapp);
+    }
 }

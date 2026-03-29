@@ -4,6 +4,7 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Customer;
 use App\Models\InventoryUnit;
+use App\Models\PaymentMethodConfig;
 use App\Models\Product;
 use App\Models\Rental;
 use App\Models\User;
@@ -49,10 +50,19 @@ class RentalReturnManagementTest extends TestCase
     {
         $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
         [$rental, $firstUnit, $secondUnit] = $this->createActiveRental();
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Cash Counter',
+            'type' => 'cash',
+            'code' => 'cash-counter',
+            'active' => true,
+        ]);
 
         $response = $this->actingAs($admin)->post(route('admin.returns.store'), [
             'rental_id' => $rental->id,
             'returned_at' => '2026-04-03 20:00:00',
+            'settlement_basis' => 'contract',
+            'payment_method_config_id' => $paymentMethod->id,
+            'payment_notes' => 'Dilunasi saat return.',
             'notes' => 'Semua barang kembali lengkap.',
             'items' => [
                 [
@@ -73,6 +83,8 @@ class RentalReturnManagementTest extends TestCase
         $this->assertDatabaseHas('returns', [
             'rental_id' => $rental->id,
             'checked_by' => $admin->id,
+            'charge_basis' => 'contract',
+            'settlement_amount' => 480000,
             'notes' => 'Semua barang kembali lengkap.',
         ]);
 
@@ -102,7 +114,17 @@ class RentalReturnManagementTest extends TestCase
 
         $this->assertDatabaseHas('rentals', [
             'id' => $rental->id,
+            'paid_amount' => 480000,
+            'remaining_amount' => 0,
+            'payment_status' => RentalPaymentStatuses::PAID,
             'rental_status' => RentalStatuses::RETURNED,
+        ]);
+
+        $this->assertDatabaseHas('payments', [
+            'rental_id' => $rental->id,
+            'payment_kind' => 'settlement',
+            'payment_method_config_id' => $paymentMethod->id,
+            'amount' => 480000,
         ]);
     }
 
@@ -116,6 +138,7 @@ class RentalReturnManagementTest extends TestCase
             ->post(route('admin.returns.store'), [
                 'rental_id' => $rental->id,
                 'returned_at' => '2026-04-03 20:00:00',
+                'settlement_basis' => 'contract',
                 'items' => [
                     [
                         'rental_item_id' => $rental->items[0]->id,
@@ -139,10 +162,18 @@ class RentalReturnManagementTest extends TestCase
     {
         $admin = $this->createUserWithRole(RoleNames::SUPER_ADMIN);
         [$rental] = $this->createActiveRental();
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Cash Counter',
+            'type' => 'cash',
+            'code' => 'cash-counter-2',
+            'active' => true,
+        ]);
 
         $payload = [
             'rental_id' => $rental->id,
             'returned_at' => '2026-04-03 20:00:00',
+            'settlement_basis' => 'actual',
+            'payment_method_config_id' => $paymentMethod->id,
             'items' => $rental->items
                 ->map(fn ($item) => [
                     'rental_item_id' => $item->id,
@@ -161,6 +192,42 @@ class RentalReturnManagementTest extends TestCase
             ->assertSessionHasErrors('rental_id');
 
         $this->assertDatabaseCount('returns', 1);
+    }
+
+    public function test_actual_settlement_basis_charges_only_until_actual_return_time(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::SUPER_ADMIN);
+        [$rental] = $this->createActiveRental();
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Transfer BCA',
+            'type' => 'transfer',
+            'code' => 'bca',
+            'bank_name' => 'BCA',
+            'account_number' => '123456789',
+            'account_name' => 'Roc Advanture',
+            'active' => true,
+        ]);
+
+        $this->actingAs($admin)->post(route('admin.returns.store'), [
+            'rental_id' => $rental->id,
+            'returned_at' => '2026-04-01 20:00:00',
+            'settlement_basis' => 'actual',
+            'payment_method_config_id' => $paymentMethod->id,
+            'items' => $rental->items
+                ->map(fn ($item) => [
+                    'rental_item_id' => $item->id,
+                    'next_unit_status' => InventoryUnitStatuses::READY_UNCLEAN,
+                    'notes' => '',
+                ])
+                ->all(),
+        ])->assertRedirect(route('admin.returns.index'));
+
+        $this->assertDatabaseHas('returns', [
+            'rental_id' => $rental->id,
+            'charge_basis' => 'actual',
+            'final_total_days' => 1,
+            'final_subtotal' => 240000,
+        ]);
     }
 
     /**

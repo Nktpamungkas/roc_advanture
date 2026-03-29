@@ -26,7 +26,7 @@ final class RentalPaymentStatuses
     {
         return match ($status) {
             self::UNPAID => 'Belum Dibayar',
-            self::DP_PAID => 'DP Masuk',
+            self::DP_PAID => 'Dibayar Sebagian',
             self::PAID => 'Lunas',
             default => $status,
         };

@@ -1,5 +1,6 @@
 import InputError from '@/components/input-error';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,14 @@ interface CustomerItem {
     address: string | null;
     notes: string | null;
     rentals_count: number;
+    rating: {
+        score: number;
+        label: string;
+        total_rentals: number;
+        completed_rentals: number;
+        overdue_returns: number;
+        damaged_returns: number;
+    };
 }
 
 interface CustomerForm {
@@ -355,6 +364,7 @@ export default function CustomersIndex({
                                                 <th className="px-4 py-3 font-medium">WhatsApp</th>
                                                 <th className="px-4 py-3 font-medium">Alamat</th>
                                                 <th className="px-4 py-3 font-medium">Riwayat Sewa</th>
+                                                <th className="px-4 py-3 font-medium">Rating</th>
                                                 <th className="px-4 py-3 text-right font-medium">Aksi</th>
                                             </tr>
                                         </thead>
@@ -369,6 +379,9 @@ export default function CustomersIndex({
                                                             <td className="px-4 py-3 text-muted-foreground">{customer.phone_whatsapp}</td>
                                                             <td className="px-4 py-3 text-muted-foreground">{customer.address || '-'}</td>
                                                             <td className="px-4 py-3 text-muted-foreground">{customer.rentals_count}</td>
+                                                            <td className="px-4 py-3">
+                                                                <Badge variant="outline">{customer.rating.label}</Badge>
+                                                            </td>
                                                             <td className="px-4 py-3 text-right">
                                                                 <Button
                                                                     type="button"
@@ -384,7 +397,7 @@ export default function CustomersIndex({
                                                 })
                                             ) : (
                                                 <tr>
-                                                    <td colSpan={5} className="text-muted-foreground px-4 py-8 text-center">
+                                                    <td colSpan={6} className="text-muted-foreground px-4 py-8 text-center">
                                                         Tidak ada customer yang cocok dengan filter saat ini.
                                                     </td>
                                                 </tr>
@@ -443,6 +456,12 @@ export default function CustomersIndex({
                                         <p className="text-muted-foreground text-sm">
                                             {selectedCustomer.name} dengan {selectedCustomer.rentals_count} riwayat transaksi rental.
                                         </p>
+                                        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+                                            <Badge variant="outline">{selectedCustomer.rating.label}</Badge>
+                                            <span className="text-muted-foreground">Skor {selectedCustomer.rating.score}/100</span>
+                                            <span className="text-muted-foreground">Overdue {selectedCustomer.rating.overdue_returns}</span>
+                                            <span className="text-muted-foreground">Reject/Rusak {selectedCustomer.rating.damaged_returns}</span>
+                                        </div>
                                     </div>
 
                                     <form className="mt-5 grid gap-4" onSubmit={submitUpdate}>

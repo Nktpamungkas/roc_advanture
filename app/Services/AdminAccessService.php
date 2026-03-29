@@ -14,4 +14,9 @@ class AdminAccessService
             RoleNames::ADMIN_TOKO,
         ]);
     }
+
+    public function isSuperAdmin(User $user): bool
+    {
+        return $user->hasRole(RoleNames::SUPER_ADMIN);
+    }
 }

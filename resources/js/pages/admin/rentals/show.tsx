@@ -12,12 +12,23 @@ interface RentalReceipt {
     starts_at: string | null;
     due_at: string | null;
     total_days: number;
+    final_total_days: number | null;
     subtotal: string;
+    final_subtotal: string | null;
     paid_amount: string;
     remaining_amount: string;
-    payment_status_label: string;
-    rental_status_label: string;
+    dp_override_reason: string | null;
     notes: string | null;
+    payment_method: {
+        name: string | null;
+        type: string | null;
+        type_label: string;
+        qr_image_path: string | null;
+        bank_name: string | null;
+        account_number: string | null;
+        account_name: string | null;
+        instructions: string | null;
+    };
     customer: {
         name: string | null;
         phone_whatsapp: string | null;
@@ -85,7 +96,10 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
     const notesRows = [rental.notes, ...paymentNotes].filter((note): note is string => Boolean(note && note.trim()));
     const hasPaymentHistory = paymentRows.length > 0;
     const hasNotesSection = notesRows.length > 0;
-    const hasDetailSections = hasPaymentHistory || hasNotesSection;
+    const hasPaymentMethodSection = Boolean(rental.payment_method.name);
+    const hasDetailSections = hasPaymentHistory || hasNotesSection || hasPaymentMethodSection;
+    const displayedSubtotal = rental.final_subtotal ?? rental.subtotal;
+    const displayedDays = rental.final_total_days ?? rental.total_days;
 
     return (
         <>
@@ -178,7 +192,7 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                                     <span className="text-neutral-500">Jam Sewa</span>
                                     <span>{formatTime(rental.starts_at)}</span>
                                     <span className="text-neutral-500">Durasi</span>
-                                    <span>{rental.total_days} hari</span>
+                                    <span>{displayedDays} hari</span>
                                     <span className="text-neutral-500">Tanggal Kembali</span>
                                     <span>{formatDate(rental.due_at)}</span>
                                 </div>
@@ -219,8 +233,8 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                             {hasDetailSections ? (
                                 <div className="grid gap-3">
                                     {hasPaymentHistory && (
-                                        <section className="rounded-md border border-neutral-300 p-3">
-                                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Riwayat Pembayaran</p>
+                                            <section className="rounded-md border border-neutral-300 p-3">
+                                                <p className="text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Riwayat Pembayaran</p>
                                             <div className="mt-2 space-y-1.5 text-[11px] text-neutral-800">
                                                 {paymentRows.map((payment) => (
                                                     <div key={payment.id} className="rounded border border-neutral-200 px-2.5 py-2">
@@ -244,6 +258,28 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                                             </div>
                                         </section>
                                     )}
+
+                                    {rental.payment_method.name && (
+                                        <section className="rounded-md border border-neutral-300 p-3">
+                                            <p className="text-xs font-medium uppercase tracking-[0.18em] text-neutral-500">Metode Pembayaran</p>
+                                            <div className="mt-2 space-y-2 text-[11px] text-neutral-700">
+                                                <p className="font-medium text-neutral-950">{rental.payment_method.name}</p>
+                                                {rental.payment_method.type === 'transfer' && (
+                                                    <div className="rounded border border-neutral-200 px-2.5 py-2">
+                                                        <p>{rental.payment_method.bank_name}</p>
+                                                        <p className="font-medium">{rental.payment_method.account_number}</p>
+                                                        <p>{rental.payment_method.account_name}</p>
+                                                    </div>
+                                                )}
+                                                {rental.payment_method.type === 'qris' && rental.payment_method.qr_image_path && (
+                                                    <div className="rounded border border-neutral-200 p-2">
+                                                        <img src={rental.payment_method.qr_image_path} alt={rental.payment_method.name} className="h-36 w-36 object-contain" />
+                                                    </div>
+                                                )}
+                                                {rental.payment_method.instructions && <p>{rental.payment_method.instructions}</p>}
+                                            </div>
+                                        </section>
+                                    )}
                                 </div>
                             ) : (
                                 <div />
@@ -256,7 +292,7 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                                 <div className="space-y-2.5 px-5 py-4 text-[11px] text-neutral-800">
                                     <div className="flex items-center justify-between gap-4">
                                         <span>Total Sewa</span>
-                                        <span>{formatCurrency(rental.subtotal)}</span>
+                                        <span>{formatCurrency(displayedSubtotal)}</span>
                                     </div>
                                     <div className="flex items-center justify-between gap-4">
                                         <span>Dibayar</span>

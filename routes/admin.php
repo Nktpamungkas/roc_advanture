@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\InventoryUnitController;
+use App\Http\Controllers\Admin\PaymentMethodConfigController;
 use App\Http\Controllers\Admin\ProductController;
+use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\RentalController;
 use App\Http\Controllers\Admin\RentalReturnController;
 use App\Http\Controllers\Admin\SeasonRuleController;
@@ -29,6 +31,10 @@ Route::middleware(['auth'])
         Route::post('customers', [CustomerController::class, 'store'])->name('customers.store');
         Route::patch('customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
 
+        Route::get('payment-methods', [PaymentMethodConfigController::class, 'index'])->name('payment-methods.index');
+        Route::post('payment-methods', [PaymentMethodConfigController::class, 'store'])->name('payment-methods.store');
+        Route::patch('payment-methods/{paymentMethodConfig}', [PaymentMethodConfigController::class, 'update'])->name('payment-methods.update');
+
         Route::get('season-rules', [SeasonRuleController::class, 'index'])->name('season-rules.index');
         Route::post('season-rules', [SeasonRuleController::class, 'store'])->name('season-rules.store');
         Route::patch('season-rules/{seasonRule}', [SeasonRuleController::class, 'update'])->name('season-rules.update');
@@ -38,6 +44,7 @@ Route::middleware(['auth'])
         Route::get('rentals/{rental}', [RentalController::class, 'show'])->name('rentals.show');
         Route::get('returns', [RentalReturnController::class, 'index'])->name('returns.index');
         Route::post('returns', [RentalReturnController::class, 'store'])->name('returns.store');
+        Route::get('reports', [ReportController::class, 'index'])->name('reports.index');
 
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('users', [UserController::class, 'store'])->name('users.store');

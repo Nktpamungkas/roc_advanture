@@ -7,6 +7,7 @@ use App\Http\Requests\Admin\UpsertCustomerRequest;
 use App\Models\Customer;
 use App\Models\Rental;
 use App\Services\AdminAccessService;
+use App\Services\CustomerRatingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -16,6 +17,7 @@ class CustomerController extends Controller
 {
     public function __construct(
         private readonly AdminAccessService $adminAccessService,
+        private readonly CustomerRatingService $customerRatingService,
     ) {
     }
 
@@ -49,6 +51,11 @@ class CustomerController extends Controller
             ->withQueryString();
 
         $customers = $paginatedCustomers->getCollection()
+            ->values();
+
+        $ratings = $this->customerRatingService->summarizeMany($customers);
+
+        $customers = $customers
             ->map(fn (Customer $customer) => [
                 'id' => $customer->id,
                 'name' => $customer->name,
@@ -56,6 +63,14 @@ class CustomerController extends Controller
                 'address' => $customer->address,
                 'notes' => $customer->notes,
                 'rentals_count' => $customer->rentals_count,
+                'rating' => $ratings[$customer->id] ?? [
+                    'score' => 60,
+                    'label' => 'Cukup',
+                    'total_rentals' => $customer->rentals_count,
+                    'completed_rentals' => 0,
+                    'overdue_returns' => 0,
+                    'damaged_returns' => 0,
+                ],
             ])
             ->values();
 

@@ -2,13 +2,16 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
 use App\Models\InventoryUnit;
 use App\Models\Payment;
+use App\Models\PaymentMethodConfig;
 use App\Models\Rental;
 use App\Models\SeasonRule;
 use App\Models\User;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentKinds;
+use App\Support\Rental\PaymentMethods;
 use App\Support\Rental\RentalPaymentStatuses;
 use App\Support\Rental\RentalStatuses;
 use App\Support\Rental\SeasonDpTypes;
@@ -24,7 +27,10 @@ class RentalCreationService
     {
         return DB::transaction(function () use ($actor, $validated): Rental {
             $startsAt = Carbon::parse($validated['starts_at']);
-            $dueAt = Carbon::parse($validated['due_at']);
+            $dueAt = $this->resolveDueAt($startsAt, $validated);
+            $customer = $this->resolveCustomer($validated);
+            $paymentMethodConfig = $this->resolvePaymentMethodConfig($validated);
+
             $inventoryUnits = InventoryUnit::query()
                 ->with('product:id,name,daily_rate,active')
                 ->whereIn('id', $validated['inventory_unit_ids'])
@@ -82,18 +88,30 @@ class RentalCreationService
 
             $rental = Rental::query()->create([
                 'rental_no' => $this->generateRentalNumber(),
-                'customer_id' => $validated['customer_id'],
+                'customer_id' => $customer->id,
                 'season_rule_id' => $seasonRule?->id,
+                'payment_method_config_id' => $paymentMethodConfig?->id,
+                'payment_method_name_snapshot' => $paymentMethodConfig?->name,
+                'payment_method_type_snapshot' => $paymentMethodConfig?->type ?? ($validated['payment_method'] ?? null),
+                'payment_qr_image_path_snapshot' => $paymentMethodConfig?->qr_image_path,
+                'payment_transfer_bank_snapshot' => $paymentMethodConfig?->bank_name,
+                'payment_transfer_account_number_snapshot' => $paymentMethodConfig?->account_number,
+                'payment_transfer_account_name_snapshot' => $paymentMethodConfig?->account_name,
+                'payment_instruction_snapshot' => $paymentMethodConfig?->instructions,
                 'created_by' => $actor->id,
                 'starts_at' => $startsAt,
                 'due_at' => $dueAt,
                 'total_days' => $totalDays,
+                'final_total_days' => null,
                 'dp_required' => $dpRequired,
                 'subtotal' => $subtotal,
+                'final_subtotal' => null,
                 'dp_amount' => $requiredDpAmount,
+                'dp_override_reason' => $validated['dp_override_reason'] ?? null,
                 'paid_amount' => $paidAmount,
                 'remaining_amount' => $remainingAmount,
                 'payment_status' => $this->determinePaymentStatus($subtotal, $paidAmount),
+                'settlement_basis' => null,
                 'rental_status' => RentalStatuses::PICKED_UP,
                 'notes' => $validated['notes'] ?? null,
             ]);
@@ -120,10 +138,15 @@ class RentalCreationService
                 Payment::query()->create([
                     'rental_id' => $rental->id,
                     'received_by' => $actor->id,
+                    'payment_method_config_id' => $paymentMethodConfig?->id,
                     'payment_kind' => $paidAmount >= $subtotal ? PaymentKinds::SETTLEMENT : PaymentKinds::DP,
                     'amount' => $paidAmount,
                     'paid_at' => now(),
-                    'method' => $validated['payment_method'] ?? null,
+                    'method' => $paymentMethodConfig?->type ?? ($validated['payment_method'] ?? null),
+                    'method_label_snapshot' => $paymentMethodConfig?->name
+                        ?? PaymentMethods::label($validated['payment_method'] ?? null),
+                    'method_type_snapshot' => $paymentMethodConfig?->type ?? ($validated['payment_method'] ?? null),
+                    'instructions_snapshot' => $paymentMethodConfig?->instructions,
                     'notes' => $validated['payment_notes'] ?? null,
                 ]);
             }
@@ -132,10 +155,50 @@ class RentalCreationService
                 'customer',
                 'seasonRule',
                 'creator',
+                'paymentMethodConfig',
                 'items.inventoryUnit.product',
                 'payments.receiver',
+                'payments.paymentMethodConfig',
             ]);
         });
+    }
+
+    private function resolveCustomer(array $validated): Customer
+    {
+        if (! empty($validated['customer_id'])) {
+            return Customer::query()->findOrFail($validated['customer_id']);
+        }
+
+        $customer = Customer::query()->firstOrNew([
+            'phone_whatsapp' => (string) $validated['customer_phone_whatsapp'],
+        ]);
+
+        $customer->fill([
+            'name' => $validated['customer_name'],
+            'address' => $validated['customer_address'] ?? $customer->address,
+        ]);
+
+        $customer->save();
+
+        return $customer;
+    }
+
+    private function resolvePaymentMethodConfig(array $validated): ?PaymentMethodConfig
+    {
+        if (empty($validated['payment_method_config_id'])) {
+            return null;
+        }
+
+        return PaymentMethodConfig::query()->find($validated['payment_method_config_id']);
+    }
+
+    private function resolveDueAt(CarbonInterface $startsAt, array $validated): CarbonInterface
+    {
+        if (! empty($validated['rental_days'])) {
+            return $startsAt->copy()->addDays((int) $validated['rental_days']);
+        }
+
+        return Carbon::parse($validated['due_at']);
     }
 
     private function calculateTotalDays(CarbonInterface $startsAt, CarbonInterface $dueAt): int

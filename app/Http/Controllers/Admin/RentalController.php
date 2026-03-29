@@ -6,14 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreRentalRequest;
 use App\Models\Customer;
 use App\Models\InventoryUnit;
+use App\Models\PaymentMethodConfig;
 use App\Models\Rental;
 use App\Models\SeasonRule;
 use App\Services\AdminAccessService;
+use App\Services\CustomerRatingService;
 use App\Services\RentalCreationService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentMethods;
 use App\Support\Rental\RentalPaymentStatuses;
 use App\Support\Rental\RentalStatuses;
+use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,14 +25,22 @@ class RentalController extends Controller
 {
     public function __construct(
         private readonly AdminAccessService $adminAccessService,
+        private readonly CustomerRatingService $customerRatingService,
         private readonly RentalCreationService $rentalCreationService,
     ) {}
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
         $actor = auth()->user();
 
         abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        $rentalFilters = [
+            'recent_search' => trim((string) $request->input('recent_search', '')),
+            'recent_per_page' => in_array($request->integer('recent_per_page', 10), [10, 15, 25, 50], true)
+                ? $request->integer('recent_per_page', 10)
+                : 10,
+        ];
 
         $availableUnits = InventoryUnit::query()
             ->with('product:id,name,daily_rate,active')
@@ -52,13 +63,20 @@ class RentalController extends Controller
             ])
             ->values();
 
-        $customers = Customer::query()
+        $customersCollection = Customer::query()
             ->orderBy('name')
             ->get()
+            ->values();
+
+        $customerRatings = $this->customerRatingService->summarizeMany($customersCollection);
+
+        $customers = $customersCollection
             ->map(fn (Customer $customer) => [
                 'id' => $customer->id,
                 'name' => $customer->name,
                 'phone_whatsapp' => $customer->phone_whatsapp,
+                'address' => $customer->address,
+                'rating' => $customerRatings[$customer->id] ?? null,
             ])
             ->values();
 
@@ -78,12 +96,27 @@ class RentalController extends Controller
             ])
             ->values();
 
-        $recentRentals = Rental::query()
+        $recentRentalsQuery = Rental::query()
             ->with('customer:id,name')
             ->withCount('items')
+            ->when($rentalFilters['recent_search'] !== '', function ($query) use ($rentalFilters): void {
+                $query->where(function ($nestedQuery) use ($rentalFilters): void {
+                    $nestedQuery
+                        ->where('rental_no', 'like', '%'.$rentalFilters['recent_search'].'%')
+                        ->orWhereHas('customer', function ($customerQuery) use ($rentalFilters): void {
+                            $customerQuery
+                                ->where('name', 'like', '%'.$rentalFilters['recent_search'].'%')
+                                ->orWhere('phone_whatsapp', 'like', '%'.$rentalFilters['recent_search'].'%');
+                        });
+                });
+            });
+
+        $paginatedRecentRentals = $recentRentalsQuery
             ->latest()
-            ->limit(10)
-            ->get()
+            ->paginate($rentalFilters['recent_per_page'])
+            ->withQueryString();
+
+        $recentRentals = $paginatedRecentRentals->getCollection()
             ->map(fn (Rental $rental) => [
                 'id' => $rental->id,
                 'rental_no' => $rental->rental_no,
@@ -105,8 +138,33 @@ class RentalController extends Controller
             'customers' => $customers,
             'availableUnits' => $availableUnits,
             'seasonRules' => $seasonRules,
-            'paymentMethodOptions' => PaymentMethods::options(),
+            'paymentMethodOptions' => PaymentMethodConfig::query()
+                ->where('active', true)
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (PaymentMethodConfig $paymentMethodConfig) => [
+                    'value' => (string) $paymentMethodConfig->id,
+                    'label' => $paymentMethodConfig->name,
+                    'type' => $paymentMethodConfig->type,
+                    'type_label' => PaymentMethods::label($paymentMethodConfig->type),
+                    'instructions' => $paymentMethodConfig->instructions,
+                    'bank_name' => $paymentMethodConfig->bank_name,
+                    'account_number' => $paymentMethodConfig->account_number,
+                    'account_name' => $paymentMethodConfig->account_name,
+                    'qr_image_path' => $paymentMethodConfig->qr_image_path,
+                ])
+                ->values(),
             'recentRentals' => $recentRentals,
+            'rentalFilters' => $rentalFilters,
+            'recentRentalPagination' => [
+                'current_page' => $paginatedRecentRentals->currentPage(),
+                'last_page' => $paginatedRecentRentals->lastPage(),
+                'per_page' => $paginatedRecentRentals->perPage(),
+                'total' => $paginatedRecentRentals->total(),
+                'from' => $paginatedRecentRentals->firstItem(),
+                'to' => $paginatedRecentRentals->lastItem(),
+            ],
             'rentalSummary' => [
                 'total_available_units' => $availableUnits->count(),
                 'ready_clean_units' => $availableUnits->where('status', InventoryUnitStatuses::READY_CLEAN)->count(),
@@ -151,16 +209,30 @@ class RentalController extends Controller
                 'starts_at' => $rental->starts_at?->toIso8601String(),
                 'due_at' => $rental->due_at?->toIso8601String(),
                 'total_days' => $rental->total_days,
+                'final_total_days' => $rental->final_total_days,
                 'dp_required' => (bool) $rental->dp_required,
                 'subtotal' => (string) $rental->subtotal,
+                'final_subtotal' => $rental->final_subtotal !== null ? (string) $rental->final_subtotal : null,
                 'dp_amount' => (string) $rental->dp_amount,
+                'dp_override_reason' => $rental->dp_override_reason,
                 'paid_amount' => (string) $rental->paid_amount,
                 'remaining_amount' => (string) $rental->remaining_amount,
                 'payment_status' => $rental->payment_status,
                 'payment_status_label' => RentalPaymentStatuses::label($rental->payment_status),
+                'settlement_basis' => $rental->settlement_basis,
                 'rental_status' => $rental->rental_status,
                 'rental_status_label' => RentalStatuses::label($rental->rental_status),
                 'notes' => $rental->notes,
+                'payment_method' => [
+                    'name' => $rental->payment_method_name_snapshot,
+                    'type' => $rental->payment_method_type_snapshot,
+                    'type_label' => PaymentMethods::label($rental->payment_method_type_snapshot),
+                    'qr_image_path' => $rental->payment_qr_image_path_snapshot,
+                    'bank_name' => $rental->payment_transfer_bank_snapshot,
+                    'account_number' => $rental->payment_transfer_account_number_snapshot,
+                    'account_name' => $rental->payment_transfer_account_name_snapshot,
+                    'instructions' => $rental->payment_instruction_snapshot,
+                ],
                 'customer' => [
                     'name' => $rental->customer?->name,
                     'phone_whatsapp' => $rental->customer?->phone_whatsapp,
@@ -192,8 +264,9 @@ class RentalController extends Controller
                         'payment_kind' => $payment->payment_kind,
                         'paid_at' => $payment->paid_at?->toIso8601String(),
                         'method' => $payment->method,
-                        'method_label' => PaymentMethods::label($payment->method),
+                        'method_label' => $payment->method_label_snapshot ?: PaymentMethods::label($payment->method),
                         'receiver_name' => $payment->receiver?->name,
+                        'instructions_snapshot' => $payment->instructions_snapshot,
                         'notes' => $payment->notes,
                     ])
                     ->values(),
