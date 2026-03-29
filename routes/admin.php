@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\RentalController;
 use App\Http\Controllers\Admin\RentalReturnController;
 use App\Http\Controllers\Admin\SeasonRuleController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\WashingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth'])
@@ -21,6 +22,8 @@ Route::middleware(['auth'])
         Route::post('inventory-units', [InventoryUnitController::class, 'store'])->name('inventory-units.store');
         Route::post('inventory-units/generate', [InventoryUnitController::class, 'storeBulk'])->name('inventory-units.generate');
         Route::patch('inventory-units/{inventoryUnit}', [InventoryUnitController::class, 'update'])->name('inventory-units.update');
+        Route::get('washing', [WashingController::class, 'index'])->name('washing.index');
+        Route::post('washing', [WashingController::class, 'store'])->name('washing.store');
 
         Route::get('customers', [CustomerController::class, 'index'])->name('customers.index');
         Route::post('customers', [CustomerController::class, 'store'])->name('customers.store');

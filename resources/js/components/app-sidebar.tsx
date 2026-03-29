@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, CalendarDays, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
+import { Archive, Bath, CalendarDays, FileText, LayoutGrid, Package, RotateCcw, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -38,6 +38,11 @@ export function AppSidebar() {
                       title: 'Unit Inventaris',
                       url: route('admin.inventory-units.index'),
                       icon: Archive,
+                  },
+                  {
+                      title: 'Proses Cuci',
+                      url: route('admin.washing.index'),
+                      icon: Bath,
                   },
                   {
                       title: 'Customer',
