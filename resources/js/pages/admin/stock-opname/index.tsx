@@ -398,7 +398,9 @@ export default function StockOpnameIndex({
                                                             <p className="font-medium">{row.unit_code}</p>
                                                             <p className="text-muted-foreground mt-1 text-xs">{row.product_name ?? '-'}</p>
                                                         </td>
-                                                        <td className="px-4 py-3">{row.status_label}</td>
+                                                        <td className="px-4 py-3">
+                                                            <SystemStatusBadge status={row.status} label={row.status_label} />
+                                                        </td>
                                                         <td className="px-4 py-3">
                                                             <Select value={row.observed_status} onValueChange={(value) => updateObservedStatus(row.id, value)}>
                                                                 <SelectTrigger className="w-52">
@@ -449,6 +451,52 @@ export default function StockOpnameIndex({
             </div>
         </AppLayout>
     );
+}
+
+function SystemStatusBadge({ status, label }: { status: string; label: string }) {
+    const tone = systemStatusTone(status);
+
+    return (
+        <Badge variant="outline" className={`gap-2 border ${tone.badgeClass}`}>
+            <span className={`size-2 rounded-full ${tone.dotClass}`} />
+            {label}
+        </Badge>
+    );
+}
+
+function systemStatusTone(status: string): { badgeClass: string; dotClass: string } {
+    switch (status) {
+        case 'ready_clean':
+            return {
+                badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                dotClass: 'bg-emerald-500',
+            };
+        case 'ready_unclean':
+            return {
+                badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
+                dotClass: 'bg-amber-500',
+            };
+        case 'rented':
+            return {
+                badgeClass: 'border-sky-200 bg-sky-50 text-sky-800',
+                dotClass: 'bg-sky-500',
+            };
+        case 'maintenance':
+            return {
+                badgeClass: 'border-rose-200 bg-rose-50 text-rose-700',
+                dotClass: 'bg-rose-500',
+            };
+        case 'retired':
+            return {
+                badgeClass: 'border-slate-300 bg-slate-100 text-slate-700',
+                dotClass: 'bg-slate-500',
+            };
+        default:
+            return {
+                badgeClass: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+                dotClass: 'bg-zinc-400',
+            };
+    }
 }
 
 function SummaryCard({ label, value, description }: { label: string; value: string | number; description: string }) {

@@ -8,7 +8,6 @@ use App\Models\Product;
 use App\Models\Rental;
 use App\Models\User;
 use App\Models\WaLog;
-use App\Services\RentalInvoicePdfService;
 use App\Support\Access\RoleNames;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\RentalPaymentStatuses;
@@ -16,7 +15,6 @@ use App\Support\Rental\RentalStatuses;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
-use Mockery\MockInterface;
 use Tests\TestCase;
 
 class WhatsappReminderManagementTest extends TestCase
@@ -55,30 +53,19 @@ class WhatsappReminderManagementTest extends TestCase
 
         [$admin, $rental] = $this->createActiveRental();
 
-        $this->mock(RentalInvoicePdfService::class, function (MockInterface $mock) use ($rental): void {
-            $mock->shouldReceive('filename')
-                ->once()
-                ->withArgs(fn (Rental $invoiceRental) => $invoiceRental->is($rental))
-                ->andReturn('invoice-sewa-roc-rent-20260310-0001.pdf');
-
-            $mock->shouldReceive('render')
-                ->once()
-                ->withArgs(fn (Rental $invoiceRental) => $invoiceRental->is($rental))
-                ->andReturn('%PDF-1.7 fake invoice pdf');
-        });
-
         $response = $this->actingAs($admin)->post(route('admin.rentals.send-invoice-whatsapp', $rental));
 
         $response->assertRedirect(route('admin.rentals.show', $rental));
         $response->assertSessionHas('success', 'Invoice berhasil dikirim ke WhatsApp customer.');
 
+        Http::assertSentCount(1);
+
         Http::assertSent(function ($request) {
             return $request->url() === 'https://api.fonnte.com/send'
                 && $request->hasHeader('Authorization', 'testing-token')
-                && $request->isMultipart()
-                && str_contains($request->body(), '6281234567890')
-                && str_contains($request->body(), 'Invoice Sewa Roc Advanture')
-                && $request->hasFile('file', filename: 'invoice-sewa-roc-rent-20260310-0001.pdf');
+                && $request->isForm()
+                && $request['target'] === '6281234567890'
+                && str_contains((string) $request['message'], 'Invoice Sewa Roc Advanture');
         });
 
         $this->assertDatabaseHas('wa_logs', [
@@ -102,18 +89,6 @@ class WhatsappReminderManagementTest extends TestCase
         [$admin, $rental] = $this->createActiveRental([
             'rental_no' => 'ROC-RENT-20260310-0005',
         ]);
-
-        $this->mock(RentalInvoicePdfService::class, function (MockInterface $mock) use ($rental): void {
-            $mock->shouldReceive('filename')
-                ->once()
-                ->withArgs(fn (Rental $invoiceRental) => $invoiceRental->is($rental))
-                ->andReturn('invoice-sewa-roc-rent-20260310-0005.pdf');
-
-            $mock->shouldReceive('render')
-                ->once()
-                ->withArgs(fn (Rental $invoiceRental) => $invoiceRental->is($rental))
-                ->andReturn('%PDF-1.7 fake invoice pdf');
-        });
 
         $response = $this->actingAs($admin)->post(route('admin.rentals.send-invoice-whatsapp', $rental));
 

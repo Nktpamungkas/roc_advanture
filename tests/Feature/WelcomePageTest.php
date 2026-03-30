@@ -4,30 +4,24 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Inertia\Testing\AssertableInertia as Assert;
 use Tests\TestCase;
 
 class WelcomePageTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_welcome_page_shares_register_state_when_no_users_exist(): void
+    public function test_home_page_redirects_guests_to_login(): void
     {
         $this->get('/')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('welcome')
-                ->where('can_register', true));
+            ->assertRedirect(route('login', absolute: false));
     }
 
-    public function test_welcome_page_hides_register_state_after_first_user_exists(): void
+    public function test_home_page_redirects_authenticated_users_to_dashboard(): void
     {
-        User::factory()->create();
+        $user = User::factory()->create();
 
-        $this->get('/')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->component('welcome')
-                ->where('can_register', false));
+        $this->actingAs($user)
+            ->get('/')
+            ->assertRedirect(route('dashboard', absolute: false));
     }
 }

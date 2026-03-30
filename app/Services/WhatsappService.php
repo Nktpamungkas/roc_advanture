@@ -15,7 +15,6 @@ class WhatsappService
 {
     public function __construct(
         private readonly HttpFactory $http,
-        private readonly RentalInvoicePdfService $rentalInvoicePdfService,
     ) {
     }
 
@@ -25,8 +24,6 @@ class WhatsappService
 
         $phone = $this->resolveRentalPhone($rental);
         $message = $this->buildRentalInvoiceMessage($rental);
-        $attachmentFilename = $this->rentalInvoicePdfService->filename($rental);
-        $attachmentContents = $this->rentalInvoicePdfService->render($rental);
 
         return $this->dispatchMessage(
             rental: $rental,
@@ -34,17 +31,6 @@ class WhatsappService
             messageType: 'rental_invoice_manual',
             message: $message,
             scheduledAt: now(),
-            attachment: [
-                'name' => (string) config('services.whatsapp.field_file', 'file'),
-                'contents' => $attachmentContents,
-                'filename' => $attachmentFilename,
-                'headers' => ['Content-Type' => 'application/pdf'],
-                'meta' => [
-                    'filename' => $attachmentFilename,
-                    'content_type' => 'application/pdf',
-                    'size' => strlen($attachmentContents),
-                ],
-            ],
         );
     }
 
@@ -122,6 +108,7 @@ class WhatsappService
             'Total Sewa: '.$this->formatCurrency($rental->final_subtotal ?? $rental->subtotal),
             'Sudah Dibayar: '.$this->formatCurrency($rental->paid_amount),
             'Sisa Tagihan: '.$this->formatCurrency($rental->remaining_amount),
+            '',
             'Admin: '.($rental->creator?->name ?? '-'),
             '',
             'Roc Advanture',
@@ -166,8 +153,9 @@ class WhatsappService
         Rental $rental,
         string $phone,
         string $messageType,
-        string $message,
+        ?string $message,
         CarbonInterface $scheduledAt,
+        array $extraPayload = [],
         ?array $attachment = null,
     ): WaLog {
         if (! $this->isEnabled()) {
@@ -179,10 +167,13 @@ class WhatsappService
             throw new RuntimeException('Nomor WhatsApp customer belum valid.');
         }
 
-        $payload = [
+        $payload = array_merge([
             config('services.whatsapp.field_phone', 'target') => $normalizedPhone,
-            config('services.whatsapp.field_message', 'message') => $message,
-        ];
+        ], $extraPayload);
+
+        if ($message !== null && trim($message) !== '') {
+            $payload[(string) config('services.whatsapp.field_message', 'message')] = $message;
+        }
 
         $headers = [];
         if (config('services.whatsapp.auth_mode', 'header') === 'header') {

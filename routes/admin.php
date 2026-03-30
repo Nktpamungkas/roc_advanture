@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\SeasonRuleController;
 use App\Http\Controllers\Admin\StockReceiptController;
 use App\Http\Controllers\Admin\StockOpnameController;
 use App\Http\Controllers\Admin\UserController;
+use App\Http\Controllers\Admin\WhatsappHistoryController;
 use App\Http\Controllers\Admin\WashingController;
 use Illuminate\Support\Facades\Route;
 
@@ -67,6 +68,10 @@ Route::middleware(['auth'])
         Route::get('reports/rentals/export/{report}', [RentalReportController::class, 'export'])->name('rental-reports.export');
         Route::get('reports/sales', [SalesReportController::class, 'index'])->name('sales-reports.index');
         Route::get('reports/sales/export/{report}', [SalesReportController::class, 'export'])->name('sales-reports.export');
+        Route::get('whatsapp-history', [WhatsappHistoryController::class, 'index'])->name('whatsapp-history.index');
+        Route::delete('whatsapp-history/delete-selected', [WhatsappHistoryController::class, 'destroySelected'])->name('whatsapp-history.destroy-selected');
+        Route::delete('whatsapp-history/delete-all', [WhatsappHistoryController::class, 'destroyAll'])->name('whatsapp-history.destroy-all');
+        Route::delete('whatsapp-history/{waLog}', [WhatsappHistoryController::class, 'destroy'])->name('whatsapp-history.destroy');
 
         Route::get('users', [UserController::class, 'index'])->name('users.index');
         Route::post('users', [UserController::class, 'store'])->name('users.store');

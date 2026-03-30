@@ -646,7 +646,7 @@ export default function InventoryUnitsIndex({
                                                             <td className="px-4 py-3 font-medium">{unit.unit_code}</td>
                                                             <td className="px-4 py-3 text-muted-foreground">{unit.product_name || '-'}</td>
                                                             <td className="px-4 py-3">
-                                                                <Badge variant="outline">{unit.status_label}</Badge>
+                                                                <InventoryStatusBadge status={unit.status} label={unit.status_label} />
                                                             </td>
                                                             <td className="px-4 py-3 text-muted-foreground">{unit.notes || '-'}</td>
                                                             <td className="px-4 py-3 text-right">
@@ -791,4 +791,50 @@ export default function InventoryUnitsIndex({
             </div>
         </AppLayout>
     );
+}
+
+function InventoryStatusBadge({ status, label }: { status: string; label: string }) {
+    const tone = inventoryStatusTone(status);
+
+    return (
+        <Badge variant="outline" className={`gap-2 border ${tone.badgeClass}`}>
+            <span className={`size-2 rounded-full ${tone.dotClass}`} />
+            {label}
+        </Badge>
+    );
+}
+
+function inventoryStatusTone(status: string): { badgeClass: string; dotClass: string } {
+    switch (status) {
+        case 'ready_clean':
+            return {
+                badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                dotClass: 'bg-emerald-500',
+            };
+        case 'ready_unclean':
+            return {
+                badgeClass: 'border-amber-200 bg-amber-50 text-amber-800',
+                dotClass: 'bg-amber-500',
+            };
+        case 'rented':
+            return {
+                badgeClass: 'border-sky-200 bg-sky-50 text-sky-800',
+                dotClass: 'bg-sky-500',
+            };
+        case 'maintenance':
+            return {
+                badgeClass: 'border-rose-200 bg-rose-50 text-rose-700',
+                dotClass: 'bg-rose-500',
+            };
+        case 'retired':
+            return {
+                badgeClass: 'border-slate-300 bg-slate-100 text-slate-700',
+                dotClass: 'bg-slate-500',
+            };
+        default:
+            return {
+                badgeClass: 'border-zinc-200 bg-zinc-50 text-zinc-700',
+                dotClass: 'bg-zinc-400',
+            };
+    }
 }
