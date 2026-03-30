@@ -35,4 +35,24 @@ return [
         ],
     ],
 
+    'whatsapp' => [
+        'enabled' => env('WHATSAPP_ENABLED', false),
+        'api_url' => env('WHATSAPP_API_URL'),
+        'token' => env('WHATSAPP_TOKEN'),
+        'timeout' => (int) env('WHATSAPP_TIMEOUT', 10),
+        'verify_ssl' => filter_var(env('WHATSAPP_VERIFY_SSL', true), FILTER_VALIDATE_BOOL),
+        'auth_mode' => env('WHATSAPP_AUTH_MODE', 'header'),
+        'auth_header' => env('WHATSAPP_AUTH_HEADER', 'Authorization'),
+        'field_phone' => env('WHATSAPP_FIELD_PHONE', 'target'),
+        'field_message' => env('WHATSAPP_FIELD_MESSAGE', 'message'),
+        'field_file' => env('WHATSAPP_FIELD_FILE', 'file'),
+        'field_token' => env('WHATSAPP_FIELD_TOKEN', 'token'),
+        'rental_reminder_lead_hours' => (int) env('WHATSAPP_RENTAL_REMINDER_LEAD_HOURS', 6),
+    ],
+
+    'pdf_renderer' => [
+        'browser_binary' => env('PDF_BROWSER_BINARY'),
+        'timeout' => (int) env('PDF_RENDER_TIMEOUT', 30),
+    ],
+
 ];

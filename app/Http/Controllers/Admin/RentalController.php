@@ -12,6 +12,7 @@ use App\Models\SeasonRule;
 use App\Services\AdminAccessService;
 use App\Services\CustomerRatingService;
 use App\Services\RentalCreationService;
+use App\Services\WhatsappService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentMethods;
 use App\Support\Rental\RentalPaymentStatuses;
@@ -27,6 +28,7 @@ class RentalController extends Controller
         private readonly AdminAccessService $adminAccessService,
         private readonly CustomerRatingService $customerRatingService,
         private readonly RentalCreationService $rentalCreationService,
+        private readonly WhatsappService $whatsappService,
     ) {}
 
     public function index(Request $request): Response
@@ -272,5 +274,20 @@ class RentalController extends Controller
                     ->values(),
             ],
         ]);
+    }
+
+    public function sendInvoiceWhatsapp(Rental $rental): RedirectResponse
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        try {
+            $this->whatsappService->sendRentalInvoice($rental);
+
+            return to_route('admin.rentals.show', $rental)->with('success', 'Invoice berhasil dikirim ke WhatsApp customer.');
+        } catch (\Throwable $exception) {
+            return to_route('admin.rentals.show', $rental)->with('error', $exception->getMessage());
+        }
     }
 }

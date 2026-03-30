@@ -257,8 +257,8 @@ export default function StockOpnameIndex({
                                 <div className="grid gap-2">
                                     <Label htmlFor="sale-search">Cari Produk</Label>
                                     <div className="relative">
-                                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                                        <Input id="sale-search" value={saleSearch} onChange={(event) => setSaleSearch(event.target.value)} placeholder="Nama produk atau SKU" className="pl-9" />
+                                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+                                        <Input id="sale-search" value={saleSearch} onChange={(event) => setSaleSearch(event.target.value)} placeholder="Nama produk atau SKU" className="pl-10" />
                                     </div>
                                 </div>
 
@@ -345,8 +345,8 @@ export default function StockOpnameIndex({
                                 <div className="grid gap-2">
                                     <Label htmlFor="rental-search">Cari Unit</Label>
                                     <div className="relative">
-                                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                                        <Input id="rental-search" value={rentalSearch} onChange={(event) => setRentalSearch(event.target.value)} placeholder="Kode unit atau produk" className="pl-9" />
+                                        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2" />
+                                        <Input id="rental-search" value={rentalSearch} onChange={(event) => setRentalSearch(event.target.value)} placeholder="Kode unit atau produk" className="pl-10" />
                                     </div>
                                 </div>
 

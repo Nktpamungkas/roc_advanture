@@ -51,6 +51,7 @@ Route::middleware(['auth'])
         Route::get('rentals', [RentalController::class, 'index'])->name('rentals.index');
         Route::post('rentals', [RentalController::class, 'store'])->name('rentals.store');
         Route::get('rentals/{rental}', [RentalController::class, 'show'])->name('rentals.show');
+        Route::post('rentals/{rental}/send-invoice-whatsapp', [RentalController::class, 'sendInvoiceWhatsapp'])->name('rentals.send-invoice-whatsapp');
         Route::get('stock-receipts', [StockReceiptController::class, 'index'])->name('stock-receipts.index');
         Route::post('stock-receipts', [StockReceiptController::class, 'store'])->name('stock-receipts.store');
         Route::get('stock-opname', [StockOpnameController::class, 'index'])->name('stock-opname.index');

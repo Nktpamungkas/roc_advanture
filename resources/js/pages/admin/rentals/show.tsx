@@ -3,8 +3,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
-import { Head, Link, usePage } from '@inertiajs/react';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { ArrowLeft, LoaderCircle, Printer, Send } from 'lucide-react';
 
 interface RentalReceipt {
     id: number;
@@ -73,6 +73,7 @@ const timeFormatter = new Intl.DateTimeFormat('id-ID', {
 
 export default function RentalReceiptPage({ rental }: { rental: RentalReceipt }) {
     const { flash } = usePage<SharedData>().props;
+    const sendInvoiceForm = useForm({});
 
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDate = (value: string | null) => (value ? dateFormatter.format(new Date(value)) : '-');
@@ -100,6 +101,13 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
     const hasDetailSections = hasPaymentHistory || hasNotesSection || hasPaymentMethodSection;
     const displayedSubtotal = rental.final_subtotal ?? rental.subtotal;
     const displayedDays = rental.final_total_days ?? rental.total_days;
+    const canSendWhatsappInvoice = Boolean(rental.customer.phone_whatsapp && rental.customer.phone_whatsapp.trim());
+
+    const sendInvoiceWhatsapp = () => {
+        sendInvoiceForm.post(route('admin.rentals.send-invoice-whatsapp', rental.id), {
+            preserveScroll: true,
+        });
+    };
 
     return (
         <>
@@ -115,16 +123,30 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                             </Link>
                         </Button>
 
-                        <Button type="button" onClick={() => window.print()}>
-                            <Printer className="h-4 w-4" />
-                            Print Bukti Sewa
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button type="button" variant="outline" onClick={sendInvoiceWhatsapp} disabled={sendInvoiceForm.processing || !canSendWhatsappInvoice}>
+                                {sendInvoiceForm.processing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                Kirim Invoice via WA
+                            </Button>
+
+                            <Button type="button" onClick={() => window.print()}>
+                                <Printer className="h-4 w-4" />
+                                Print Bukti Sewa
+                            </Button>
+                        </div>
                     </div>
 
                     {flash.success && (
                         <Alert className="print:hidden">
-                            <AlertTitle>Transaksi berhasil dibuat</AlertTitle>
+                            <AlertTitle>Berhasil</AlertTitle>
                             <AlertDescription>{flash.success}</AlertDescription>
+                        </Alert>
+                    )}
+
+                    {flash.error && (
+                        <Alert className="border-red-200 bg-red-50 text-red-700 print:hidden">
+                            <AlertTitle>Pengiriman WhatsApp gagal</AlertTitle>
+                            <AlertDescription>{flash.error}</AlertDescription>
                         </Alert>
                     )}
 
