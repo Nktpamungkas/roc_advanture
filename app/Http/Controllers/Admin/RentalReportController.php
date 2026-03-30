@@ -24,7 +24,7 @@ use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class ReportController extends Controller
+class RentalReportController extends Controller
 {
     public function __construct(
         private readonly AdminAccessService $adminAccessService,
@@ -199,7 +199,7 @@ class ReportController extends Controller
             ->orderBy('name')
             ->get();
 
-        return Inertia::render('admin/reports/index', [
+        return Inertia::render('admin/reports/rentals/index', [
             'reportFilters' => $filters,
             'rentalStatusOptions' => array_map(fn (string $status) => [
                 'value' => $status,

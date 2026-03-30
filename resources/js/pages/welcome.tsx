@@ -1,3 +1,4 @@
+import BrandWordmark from '@/components/brand-wordmark';
 import { type SharedData } from '@/types';
 import { Head, Link, usePage } from '@inertiajs/react';
 
@@ -11,9 +12,11 @@ export default function Welcome() {
             <div className="min-h-screen bg-stone-950 text-stone-100">
                 <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-6 py-8 lg:px-10">
                     <header className="flex items-center justify-between border-b border-white/10 pb-6">
-                        <div>
-                            <p className="text-xs uppercase tracking-[0.35em] text-amber-400">Stock Opname Starter</p>
-                            <h1 className="mt-2 text-2xl font-semibold text-white">Roc Advanture</h1>
+                        <div className="max-w-md">
+                            <div className="inline-flex rounded-[1.5rem] border border-white/10 bg-white px-4 py-3 shadow-xl shadow-black/10">
+                                <BrandWordmark className="h-14 w-auto" />
+                            </div>
+                            <p className="mt-4 text-xs uppercase tracking-[0.35em] text-amber-400">Sistem Operasional Rental Outdoor</p>
                         </div>
 
                         <nav className="flex items-center gap-3">
@@ -47,14 +50,17 @@ export default function Welcome() {
 
                     <main className="grid flex-1 gap-8 py-10 lg:grid-cols-[1.3fr_0.9fr] lg:items-center">
                         <section className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-stone-900 via-stone-900 to-amber-950/80 p-8 shadow-2xl shadow-black/20 lg:p-10">
-                            <p className="text-sm font-medium text-amber-300">Fondasi aplikasi sudah disiapkan</p>
+                            <div className="inline-flex rounded-[1.5rem] border border-white/10 bg-white px-4 py-3 shadow-lg shadow-black/10">
+                                <BrandWordmark className="h-16 w-auto" />
+                            </div>
+                            <p className="mt-6 text-sm font-medium text-amber-300">Fondasi aplikasi sudah disiapkan</p>
                             <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-white lg:text-5xl">
-                                Shell SPA untuk sistem stock opname Roc Advanture.
+                                Shell SPA untuk operasional penyewaan dan penjualan Roc Advanture.
                             </h2>
                             <p className="mt-4 max-w-2xl text-base leading-7 text-stone-300">
                                 Project ini sekarang sudah memakai Laravel 12, Inertia, React, dan struktur awal yang
-                                siap kita lanjutkan ke auth, role, dan alur operasional toko tanpa menyentuh modul
-                                stock opname dulu.
+                                siap kita lanjutkan ke auth, role, alur rental, penjualan, dan operasional toko
+                                harian dalam satu dashboard.
                             </p>
 
                             <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -68,7 +74,7 @@ export default function Welcome() {
                                 </div>
                                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                                     <p className="text-sm text-stone-400">Status</p>
-                                    <p className="mt-2 text-lg font-semibold text-white">Ready for auth flow</p>
+                                    <p className="mt-2 text-lg font-semibold text-white">Ready for operations</p>
                                 </div>
                             </div>
                         </section>

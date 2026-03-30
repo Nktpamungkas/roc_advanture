@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, BarChart3, Bath, CalendarDays, CreditCard, FileText, LayoutGrid, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
+import { Archive, BarChart3, Bath, CalendarDays, ClipboardList, CreditCard, FileText, LayoutGrid, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -21,9 +21,9 @@ export function AppSidebar() {
         ...(canManageUsers
             ? [
                   {
-                      title: 'Laporan',
-                      url: route('admin.reports.index'),
-                      icon: BarChart3,
+                      title: 'Stok Opname',
+                      url: route('admin.stock-opname.index'),
+                      icon: ClipboardList,
                   },
               ]
             : []),
@@ -60,6 +60,21 @@ export function AppSidebar() {
                   title: 'Stok Masuk',
                   url: route('admin.stock-receipts.index'),
                   icon: Truck,
+              },
+          ]
+        : [];
+
+    const reportItems: NavItem[] = canManageUsers
+        ? [
+              {
+                  title: 'Laporan Penyewaan',
+                  url: route('admin.rental-reports.index'),
+                  icon: BarChart3,
+              },
+              {
+                  title: 'Laporan Penjualan',
+                  url: route('admin.sales-reports.index'),
+                  icon: ShoppingBag,
               },
           ]
         : [];
@@ -138,6 +153,14 @@ export function AppSidebar() {
                   {
                       title: 'Operasional Penjualan',
                       items: salesOperationalItems,
+                  },
+              ]
+            : []),
+        ...(reportItems.length > 0
+            ? [
+                  {
+                      title: 'Laporan',
+                      items: reportItems,
                   },
               ]
             : []),

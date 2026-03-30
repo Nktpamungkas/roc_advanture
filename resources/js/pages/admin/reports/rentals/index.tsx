@@ -183,7 +183,7 @@ interface TopProductItem {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
-    { title: 'Laporan', href: '/admin/reports' },
+    { title: 'Laporan Penyewaan', href: '/admin/reports/rentals' },
 ];
 
 const currencyFormatter = new Intl.NumberFormat('id-ID', {
@@ -264,7 +264,7 @@ export default function ReportsIndex({
         event.preventDefault();
 
         router.get(
-            route('admin.reports.index'),
+            route('admin.rental-reports.index'),
             {
                 search: filterForm.data.search || undefined,
                 date_from: filterForm.data.date_from || undefined,
@@ -292,7 +292,7 @@ export default function ReportsIndex({
         });
 
         router.get(
-            route('admin.reports.index'),
+            route('admin.rental-reports.index'),
             {
                 date_from: reportFilters.date_from,
                 date_to: reportFilters.date_to,
@@ -309,7 +309,7 @@ export default function ReportsIndex({
 
     const goToPage = (page: number) => {
         router.get(
-            route('admin.reports.index'),
+            route('admin.rental-reports.index'),
             {
                 search: reportFilters.search || undefined,
                 date_from: reportFilters.date_from,
@@ -346,7 +346,7 @@ export default function ReportsIndex({
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
     const buildExportUrl = (report: string, format: 'csv' | 'excel') =>
-        route('admin.reports.export', {
+        route('admin.rental-reports.export', {
             report,
             format,
             search: reportFilters.search || undefined,
@@ -358,12 +358,12 @@ export default function ReportsIndex({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Laporan" />
+            <Head title="Laporan Penyewaan" />
 
             <div className="space-y-6 p-4 md:p-6">
                 <div className="flex flex-col gap-2">
-                    <h1 className="text-2xl font-semibold tracking-tight">Laporan Operasional</h1>
-                    <p className="text-muted-foreground text-sm">Ringkasan cepat untuk penyewaan, jatuh tempo, posisi stok, dan pembayaran masuk Roc Advanture.</p>
+                    <h1 className="text-2xl font-semibold tracking-tight">Laporan Penyewaan</h1>
+                    <p className="text-muted-foreground text-sm">Ringkasan cepat untuk penyewaan, jatuh tempo, posisi stok, pembayaran masuk, dan pengembalian Roc Advanture.</p>
                 </div>
 
                 {flash.success && (
@@ -372,8 +372,8 @@ export default function ReportsIndex({
 
                 <Card className="rounded-3xl">
                     <CardHeader>
-                        <CardTitle>Filter Laporan</CardTitle>
-                        <CardDescription>Atur periode dan pencarian untuk membaca laporan operasional dari satu halaman.</CardDescription>
+                        <CardTitle>Filter Laporan Penyewaan</CardTitle>
+                        <CardDescription>Atur periode dan pencarian untuk membaca laporan rental dari satu halaman.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <form onSubmit={submitFilters} className="grid gap-4 lg:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))]">
@@ -463,8 +463,8 @@ export default function ReportsIndex({
 
                 <Card className="rounded-3xl">
                     <CardHeader>
-                        <CardTitle>Export Laporan</CardTitle>
-                        <CardDescription>Unduh laporan sesuai filter aktif dalam format CSV atau file yang bisa dibuka langsung di Excel.</CardDescription>
+                        <CardTitle>Export Laporan Penyewaan</CardTitle>
+                        <CardDescription>Unduh laporan rental sesuai filter aktif dalam format CSV atau file yang bisa dibuka langsung di Excel.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

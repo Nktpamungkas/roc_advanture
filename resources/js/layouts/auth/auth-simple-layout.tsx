@@ -1,4 +1,5 @@
 import AppLogoIcon from '@/components/app-logo-icon';
+import BrandWordmark from '@/components/brand-wordmark';
 import { Link } from '@inertiajs/react';
 
 interface AuthLayoutProps {
@@ -10,12 +11,16 @@ interface AuthLayoutProps {
 
 export default function AuthSimpleLayout({ children, title, description }: AuthLayoutProps) {
     return (
-        <div className="bg-background flex min-h-svh flex-col items-center justify-center gap-6 p-6 md:p-10">
+        <div className="bg-background relative flex min-h-svh flex-col items-center justify-center overflow-hidden p-6 md:p-10">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(15,23,42,0.08),_transparent_30%)]" />
             <div className="w-full max-w-sm">
-                <div className="flex flex-col gap-8">
-                    <div className="flex flex-col items-center gap-4">
-                        <Link href={route('home')} className="flex flex-col items-center gap-2 font-medium">
-                            <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-md">
+                <div className="relative flex flex-col gap-8">
+                    <div className="flex flex-col items-center gap-5">
+                        <Link href={route('home')} className="flex w-full flex-col items-center gap-3 font-medium">
+                            <div className="w-full rounded-3xl border border-black/10 bg-white px-5 py-4 shadow-sm">
+                                <BrandWordmark className="mx-auto max-w-[17rem]" />
+                            </div>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-md">
                                 <AppLogoIcon className="size-9 fill-current text-[var(--foreground)] dark:text-white" />
                             </div>
                             <span className="sr-only">{title}</span>

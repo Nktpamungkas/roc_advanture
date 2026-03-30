@@ -32,7 +32,7 @@ class ReportManagementTest extends TestCase
     {
         $staff = $this->createUserWithRole(RoleNames::STAFF);
 
-        $this->actingAs($staff)->get(route('admin.reports.index'))->assertForbidden();
+        $this->actingAs($staff)->get(route('admin.rental-reports.index'))->assertForbidden();
     }
 
     public function test_admin_toko_can_open_report_page(): void
@@ -40,9 +40,9 @@ class ReportManagementTest extends TestCase
         $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
 
         $this->actingAs($admin)
-            ->get(route('admin.reports.index'))
+            ->get(route('admin.rental-reports.index'))
             ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->component('admin/reports/index'));
+            ->assertInertia(fn (Assert $page) => $page->component('admin/reports/rentals/index'));
     }
 
     public function test_report_page_filters_rentals_and_shows_operational_data(): void
@@ -116,7 +116,7 @@ class ReportManagementTest extends TestCase
         ]);
 
         $this->actingAs($admin)
-            ->get(route('admin.reports.index', [
+            ->get(route('admin.rental-reports.index', [
                 'search' => 'Nilo',
                 'date_from' => '2026-03-01',
                 'date_to' => '2026-03-31',
@@ -124,7 +124,7 @@ class ReportManagementTest extends TestCase
             ]))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->component('admin/reports/index')
+                ->component('admin/reports/rentals/index')
                 ->where('reportFilters.search', 'Nilo')
                 ->where('reportSummary.rentals_in_period', 1)
                 ->where('reportSummary.payments_in_period', 50000)
@@ -159,7 +159,7 @@ class ReportManagementTest extends TestCase
             'rental_status' => RentalStatuses::PICKED_UP,
         ]);
 
-        $response = $this->actingAs($admin)->get(route('admin.reports.export', [
+        $response = $this->actingAs($admin)->get(route('admin.rental-reports.export', [
             'report' => 'rentals',
             'format' => 'csv',
             'date_from' => '2026-03-01',

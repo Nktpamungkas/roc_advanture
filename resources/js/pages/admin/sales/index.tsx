@@ -466,10 +466,10 @@ export default function SalesIndex({
                                                             </td>
                                                             <td className="border-t px-4 py-3 text-muted-foreground">{item.product.stock_qty}</td>
                                                             <td className="border-t px-4 py-3">
-                                                                <div className="flex w-28 items-center rounded-lg border">
+                                                                <div className="flex w-24 items-center rounded-lg border">
                                                                     <button
                                                                         type="button"
-                                                                        className="px-3 py-2"
+                                                                        className="px-2 py-2"
                                                                         onClick={() => updateCartQty(item.sale_product_id, String(Math.max(1, Number(item.qty || 0) - 1)))}
                                                                     >
                                                                         <Minus className="h-4 w-4" />
@@ -480,11 +480,11 @@ export default function SalesIndex({
                                                                         max={item.product.stock_qty}
                                                                         value={item.qty}
                                                                         onChange={(event) => updateCartQty(item.sale_product_id, event.target.value)}
-                                                                        className="h-10 rounded-none border-0 text-center shadow-none focus-visible:ring-0"
+                                                                        className="h-9 rounded-none border-0 px-0 text-center text-sm shadow-none focus-visible:ring-0"
                                                                     />
                                                                     <button
                                                                         type="button"
-                                                                        className="px-3 py-2"
+                                                                        className="px-2 py-2"
                                                                         onClick={() => updateCartQty(item.sale_product_id, String(Math.min(item.product.stock_qty, Number(item.qty || 0) + 1)))}
                                                                     >
                                                                         <Plus className="h-4 w-4" />

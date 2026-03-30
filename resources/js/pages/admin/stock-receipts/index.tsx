@@ -122,6 +122,16 @@ export default function StockReceiptsIndex({
         per_page: String(stockReceiptFilters.per_page),
     });
 
+    const selectedProductIds = useMemo(
+        () => createForm.data.items.map((item) => item.sale_product_id).filter((value) => value !== ''),
+        [createForm.data.items],
+    );
+
+    const remainingProductOptions = useMemo(
+        () => saleProductOptions.filter((option) => !selectedProductIds.includes(option.value)),
+        [saleProductOptions, selectedProductIds],
+    );
+
     useEffect(() => {
         filterForm.setData({
             search: stockReceiptFilters.search,
@@ -142,12 +152,18 @@ export default function StockReceiptsIndex({
     };
 
     const addItem = () => {
+        const nextProduct = remainingProductOptions[0];
+
+        if (!nextProduct) {
+            return;
+        }
+
         createForm.setData('items', [
             ...createForm.data.items,
             {
-                sale_product_id: saleProductOptions[0]?.value ?? '',
+                sale_product_id: nextProduct.value,
                 qty: '1',
-                purchase_price: saleProductOptions[0]?.purchase_price ?? '',
+                purchase_price: nextProduct.purchase_price,
             },
         ]);
     };
@@ -287,7 +303,7 @@ export default function StockReceiptsIndex({
                                             <h2 className="font-semibold">Item Restock</h2>
                                             <p className="text-muted-foreground text-sm">Pilih produk, qty, dan harga beli per item.</p>
                                         </div>
-                                        <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                                        <Button type="button" variant="outline" size="sm" onClick={addItem} disabled={remainingProductOptions.length === 0}>
                                             <Plus className="mr-2 h-4 w-4" />
                                             Tambah Baris
                                         </Button>
@@ -298,6 +314,13 @@ export default function StockReceiptsIndex({
                                     <div className="grid gap-3">
                                         {createForm.data.items.map((item, index) => {
                                             const selectedProduct = saleProductOptions.find((product) => product.value === item.sale_product_id) ?? null;
+                                            const selectedInOtherRows = createForm.data.items
+                                                .filter((_, itemIndex) => itemIndex !== index)
+                                                .map((entry) => entry.sale_product_id)
+                                                .filter((value) => value !== '');
+                                            const productOptionsForRow = saleProductOptions.filter(
+                                                (option) => option.value === item.sale_product_id || !selectedInOtherRows.includes(option.value),
+                                            );
 
                                             return (
                                                 <div key={`${index}-${item.sale_product_id}`} className="grid gap-3 rounded-2xl border p-4 md:grid-cols-[1.2fr_0.7fr_0.8fr_auto]">
@@ -307,7 +330,7 @@ export default function StockReceiptsIndex({
                                                             <SelectTrigger><SelectValue placeholder="Pilih produk" /></SelectTrigger>
                                                             <SelectContent>
                                                                 <SelectItem value="none">Pilih produk</SelectItem>
-                                                                {saleProductOptions.map((option) => (
+                                                                {productOptionsForRow.map((option) => (
                                                                     <SelectItem key={option.value} value={option.value}>
                                                                         {option.label} ({option.sku})
                                                                     </SelectItem>
