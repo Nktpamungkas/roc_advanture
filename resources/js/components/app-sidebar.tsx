@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, BarChart3, Bath, CalendarDays, ClipboardList, CreditCard, FileText, LayoutGrid, MessageSquare, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
+import { Archive, BarChart3, Bath, BellRing, CalendarDays, ClipboardList, CreditCard, FileText, LayoutGrid, MessageSquare, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -132,6 +132,11 @@ export function AppSidebar() {
 
     const settingsItems: NavItem[] = canManageUsers
         ? [
+              {
+                  title: 'Reminder WhatsApp',
+                  url: route('admin.notification-settings.index'),
+                  icon: BellRing,
+              },
               {
                   title: 'User Management',
                   url: route('admin.users.index'),

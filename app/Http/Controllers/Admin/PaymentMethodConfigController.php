@@ -9,6 +9,7 @@ use App\Services\AdminAccessService;
 use App\Services\PaymentMethodAssetService;
 use App\Support\Rental\PaymentMethods;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -19,6 +20,17 @@ class PaymentMethodConfigController extends Controller
         private readonly AdminAccessService $adminAccessService,
         private readonly PaymentMethodAssetService $paymentMethodAssetService,
     ) {}
+
+    public function options(): JsonResponse
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        return response()->json([
+            'payment_method_options' => $this->buildActivePaymentMethodOptions(),
+        ]);
+    }
 
     public function index(Request $request): Response
     {
@@ -116,5 +128,30 @@ class PaymentMethodConfigController extends Controller
         $paymentMethodConfig->update($validated);
 
         return to_route('admin.payment-methods.index')->with('success', 'Metode pembayaran berhasil diperbarui.');
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildActivePaymentMethodOptions(): array
+    {
+        return PaymentMethodConfig::query()
+            ->where('active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (PaymentMethodConfig $paymentMethodConfig) => [
+                'value' => (string) $paymentMethodConfig->id,
+                'label' => $paymentMethodConfig->name,
+                'type' => $paymentMethodConfig->type,
+                'type_label' => PaymentMethods::label($paymentMethodConfig->type),
+                'instructions' => $paymentMethodConfig->instructions,
+                'bank_name' => $paymentMethodConfig->bank_name,
+                'account_number' => $paymentMethodConfig->account_number,
+                'account_name' => $paymentMethodConfig->account_name,
+                'qr_image_path' => $paymentMethodConfig->qr_image_path,
+            ])
+            ->values()
+            ->all();
     }
 }

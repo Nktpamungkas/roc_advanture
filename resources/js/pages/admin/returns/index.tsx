@@ -164,6 +164,8 @@ export default function ReturnsIndex({
 }) {
     const { flash } = usePage<SharedData>().props;
     const [selectedRentalId, setSelectedRentalId] = useState<number | null>(activeRentals[0]?.id ?? null);
+    const [availablePaymentMethodOptions, setAvailablePaymentMethodOptions] = useState(paymentMethodOptions);
+    const [isRefreshingPaymentMethods, setIsRefreshingPaymentMethods] = useState(false);
 
     const selectedRental = useMemo(
         () => activeRentals.find((rental) => rental.id === selectedRentalId) ?? null,
@@ -194,6 +196,10 @@ export default function ReturnsIndex({
     });
 
     useEffect(() => {
+        setAvailablePaymentMethodOptions(paymentMethodOptions);
+    }, [paymentMethodOptions]);
+
+    useEffect(() => {
         if (activeRentals.some((rental) => rental.id === selectedRentalId)) {
             return;
         }
@@ -208,7 +214,7 @@ export default function ReturnsIndex({
                 returned_at: buildReturnedAt(),
                 settlement_basis: settlementBasisOptions[0]?.value ?? 'contract',
                 guarantee_returned: false,
-                payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
+                payment_method_config_id: availablePaymentMethodOptions[0]?.value ?? '',
                 payment_notes: '',
                 notes: '',
                 items: [],
@@ -221,7 +227,7 @@ export default function ReturnsIndex({
             returned_at: buildReturnedAt(selectedRental.starts_at),
             settlement_basis: settlementBasisOptions[0]?.value ?? 'contract',
             guarantee_returned: false,
-            payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
+            payment_method_config_id: availablePaymentMethodOptions[0]?.value ?? '',
             payment_notes: '',
             notes: '',
             items: selectedRental.items.map((item) => ({
@@ -231,7 +237,7 @@ export default function ReturnsIndex({
             })),
         });
         returnForm.clearErrors();
-    }, [selectedRental]);
+    }, [availablePaymentMethodOptions, selectedRental]);
 
     useEffect(() => {
         filterForm.setData({
@@ -307,8 +313,8 @@ export default function ReturnsIndex({
     const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
 
     const selectedPaymentMethod = useMemo(
-        () => paymentMethodOptions.find((option) => option.value === returnForm.data.payment_method_config_id) ?? null,
-        [paymentMethodOptions, returnForm.data.payment_method_config_id],
+        () => availablePaymentMethodOptions.find((option) => option.value === returnForm.data.payment_method_config_id) ?? null,
+        [availablePaymentMethodOptions, returnForm.data.payment_method_config_id],
     );
 
     const computedSettlementDays = useMemo(() => {
@@ -353,6 +359,46 @@ export default function ReturnsIndex({
         return Math.max(0, computedFinalSubtotal - Number(selectedRental.paid_amount || 0));
     }, [computedFinalSubtotal, selectedRental]);
     const guaranteeStillHeld = Boolean(selectedRental?.guarantee_note && !returnForm.data.guarantee_returned);
+
+    const refreshPaymentMethodOptions = async (open: boolean) => {
+        if (!open || isRefreshingPaymentMethods) {
+            return;
+        }
+
+        setIsRefreshingPaymentMethods(true);
+
+        try {
+            const response = await fetch('/admin/payment-methods/options', {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error('Gagal memuat metode pembayaran terbaru.');
+            }
+
+            const data = (await response.json()) as { payment_method_options?: PaymentMethodOption[] };
+            const nextOptions = data.payment_method_options ?? [];
+
+            setAvailablePaymentMethodOptions(nextOptions);
+
+            if (nextOptions.length === 0) {
+                returnForm.setData('payment_method_config_id', '');
+
+                return;
+            }
+
+            if (!nextOptions.some((option) => option.value === returnForm.data.payment_method_config_id)) {
+                returnForm.setData('payment_method_config_id', nextOptions[0]?.value ?? '');
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsRefreshingPaymentMethods(false);
+        }
+    };
 
     const paginationPages = useMemo(() => {
         if (returnPagination.last_page <= 1) {
@@ -466,7 +512,7 @@ export default function ReturnsIndex({
 
                                         <div className="grid gap-4">
                                             <div className="rounded-2xl border p-4 text-sm"><p className="text-muted-foreground text-xs uppercase tracking-wide">Pelunasan Return</p><div className="mt-3 grid gap-2"><div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Dasar</span><span>{returnForm.data.settlement_basis === 'actual' ? 'Aktual' : 'Kontrak'}</span></div><div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Hari Ditagihkan</span><span>{computedSettlementDays}</span></div><div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Total Akhir</span><span>{formatCurrency(computedFinalSubtotal)}</span></div><div className="flex items-center justify-between gap-3"><span className="text-muted-foreground">Sudah Dibayar</span><span>{formatCurrency(selectedRental.paid_amount)}</span></div><div className="flex items-center justify-between gap-3 border-t pt-3 font-medium"><span>Pelunasan Saat Ini</span><span>{formatCurrency(computedSettlementAmount)}</span></div></div></div>
-                                            <div className="grid gap-2"><Label htmlFor="return-payment-method">Metode Pelunasan</Label><Select value={returnForm.data.payment_method_config_id || 'none'} onValueChange={(value) => returnForm.setData('payment_method_config_id', value === 'none' ? '' : value)}><SelectTrigger id="return-payment-method"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Belum dipilih</SelectItem>{paymentMethodOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label} • {option.type_label}</SelectItem>)}</SelectContent></Select><InputError message={returnForm.errors.payment_method_config_id} /></div>
+                                            <div className="grid gap-2"><Label htmlFor="return-payment-method">Metode Pelunasan</Label><Select value={returnForm.data.payment_method_config_id || 'none'} onValueChange={(value) => returnForm.setData('payment_method_config_id', value === 'none' ? '' : value)} onOpenChange={(open) => void refreshPaymentMethodOptions(open)}><SelectTrigger id="return-payment-method"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="none">Belum dipilih</SelectItem>{availablePaymentMethodOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label} • {option.type_label}</SelectItem>)}</SelectContent></Select><p className="text-muted-foreground text-xs">{isRefreshingPaymentMethods ? 'Memuat metode pembayaran terbaru...' : 'Daftar akan dicek ulang saat dropdown dibuka.'}</p><InputError message={returnForm.errors.payment_method_config_id} /></div>
                                             {selectedPaymentMethod && <div className="rounded-2xl border p-4 text-sm"><div className="mb-2 flex items-center gap-2 font-medium"><CreditCard className="h-4 w-4" />{selectedPaymentMethod.label}</div>{selectedPaymentMethod.type === 'transfer' && <div className="rounded-xl border bg-muted/20 p-3"><p>{selectedPaymentMethod.bank_name}</p><p className="font-medium">{selectedPaymentMethod.account_number}</p><p className="text-muted-foreground">{selectedPaymentMethod.account_name}</p></div>}{selectedPaymentMethod.type === 'qris' && selectedPaymentMethod.qr_image_path && <img src={selectedPaymentMethod.qr_image_path} alt={selectedPaymentMethod.label} className="h-40 w-40 rounded-xl border object-contain p-2" />}{selectedPaymentMethod.instructions && <p className="text-muted-foreground mt-2 leading-6">{selectedPaymentMethod.instructions}</p>}</div>}
                                             <div className="grid gap-2"><Label htmlFor="payment-notes">Catatan Pelunasan</Label><Textarea id="payment-notes" value={returnForm.data.payment_notes} onChange={(event) => returnForm.setData('payment_notes', event.target.value)} /><InputError message={returnForm.errors.payment_notes} /></div>
                                         </div>

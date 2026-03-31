@@ -191,6 +191,8 @@ export default function RentalsIndex({
     const { flash } = usePage<SharedData>().props;
     const [unitSearch, setUnitSearch] = useState('');
     const [durationInputSource, setDurationInputSource] = useState<RentalDurationInputSource>('rental_days');
+    const [availablePaymentMethodOptions, setAvailablePaymentMethodOptions] = useState(paymentMethodOptions);
+    const [isRefreshingPaymentMethods, setIsRefreshingPaymentMethods] = useState(false);
     const startsAtDefault = defaultStartAt();
     const dueAtDefault = calculateDueAtValue(startsAtDefault, '1');
 
@@ -231,6 +233,10 @@ export default function RentalsIndex({
 
         return calculateRentalDaysValue(createForm.data.starts_at, createForm.data.due_at);
     }, [createForm.data.due_at, createForm.data.rental_days, createForm.data.starts_at, durationInputSource]);
+
+    useEffect(() => {
+        setAvailablePaymentMethodOptions(paymentMethodOptions);
+    }, [paymentMethodOptions]);
 
     useEffect(() => {
         if (durationInputSource === 'rental_days' && computedDueAt !== createForm.data.due_at) {
@@ -294,8 +300,8 @@ export default function RentalsIndex({
 
     const totalDays = Math.max(0, Number(createForm.data.rental_days || 0));
     const selectedPaymentMethod = useMemo(
-        () => paymentMethodOptions.find((option) => option.value === createForm.data.payment_method_config_id) ?? null,
-        [createForm.data.payment_method_config_id, paymentMethodOptions],
+        () => availablePaymentMethodOptions.find((option) => option.value === createForm.data.payment_method_config_id) ?? null,
+        [availablePaymentMethodOptions, createForm.data.payment_method_config_id],
     );
 
     const matchedSeasonRule = useMemo(() => {
@@ -362,6 +368,46 @@ export default function RentalsIndex({
     const updateDueAt = (value: string) => {
         setDurationInputSource('due_at');
         createForm.setData('due_at', value);
+    };
+
+    const refreshPaymentMethodOptions = async (open: boolean) => {
+        if (!open || isRefreshingPaymentMethods) {
+            return;
+        }
+
+        setIsRefreshingPaymentMethods(true);
+
+        try {
+            const response = await fetch('/admin/payment-methods/options', {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error('Gagal memuat metode pembayaran terbaru.');
+            }
+
+            const data = (await response.json()) as { payment_method_options?: PaymentMethodOption[] };
+            const nextOptions = data.payment_method_options ?? [];
+
+            setAvailablePaymentMethodOptions(nextOptions);
+
+            if (nextOptions.length === 0) {
+                createForm.setData('payment_method_config_id', '');
+
+                return;
+            }
+
+            if (! nextOptions.some((option) => option.value === createForm.data.payment_method_config_id)) {
+                createForm.setData('payment_method_config_id', nextOptions[0]?.value ?? '');
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsRefreshingPaymentMethods(false);
+        }
     };
 
     const submitCreate: FormEventHandler = (event) => {
@@ -637,19 +683,20 @@ export default function RentalsIndex({
                                     <div className="grid gap-4">
                                         <div className="grid gap-2">
                                             <Label htmlFor="payment-method-config">Metode Pembayaran</Label>
-                                            <Select value={createForm.data.payment_method_config_id || 'none'} onValueChange={(value) => createForm.setData('payment_method_config_id', value === 'none' ? '' : value)}>
+                                            <Select value={createForm.data.payment_method_config_id || 'none'} onValueChange={(value) => createForm.setData('payment_method_config_id', value === 'none' ? '' : value)} onOpenChange={(open) => void refreshPaymentMethodOptions(open)}>
                                                 <SelectTrigger id="payment-method-config">
                                                     <SelectValue placeholder="Pilih metode pembayaran" />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="none">Belum dipilih</SelectItem>
-                                                    {paymentMethodOptions.map((option) => (
+                                                    {availablePaymentMethodOptions.map((option) => (
                                                         <SelectItem key={option.value} value={option.value}>
                                                             {option.label} • {option.type_label}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            <p className="text-muted-foreground text-xs">{isRefreshingPaymentMethods ? 'Memuat metode pembayaran terbaru...' : 'Daftar akan dicek ulang saat dropdown dibuka.'}</p>
                                             <InputError message={createForm.errors.payment_method_config_id} />
                                         </div>
 

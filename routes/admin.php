@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\InventoryUnitController;
+use App\Http\Controllers\Admin\NotificationSettingController;
 use App\Http\Controllers\Admin\PaymentMethodConfigController;
 use App\Http\Controllers\Admin\ProductController;
 use App\Http\Controllers\Admin\RentalReportController;
@@ -42,8 +43,11 @@ Route::middleware(['auth'])
         Route::patch('customers/{customer}', [CustomerController::class, 'update'])->name('customers.update');
 
         Route::get('payment-methods', [PaymentMethodConfigController::class, 'index'])->name('payment-methods.index');
+        Route::get('payment-methods/options', [PaymentMethodConfigController::class, 'options'])->name('payment-methods.options');
         Route::post('payment-methods', [PaymentMethodConfigController::class, 'store'])->name('payment-methods.store');
         Route::patch('payment-methods/{paymentMethodConfig}', [PaymentMethodConfigController::class, 'update'])->name('payment-methods.update');
+        Route::get('notification-settings', [NotificationSettingController::class, 'index'])->name('notification-settings.index');
+        Route::put('notification-settings', [NotificationSettingController::class, 'update'])->name('notification-settings.update');
 
         Route::get('season-rules', [SeasonRuleController::class, 'index'])->name('season-rules.index');
         Route::post('season-rules', [SeasonRuleController::class, 'store'])->name('season-rules.store');

@@ -122,6 +122,8 @@ export default function SalesIndex({
 }) {
     const { flash } = usePage<SharedData>().props;
     const [productSearch, setProductSearch] = useState('');
+    const [availablePaymentMethodOptions, setAvailablePaymentMethodOptions] = useState(paymentMethodOptions);
+    const [isRefreshingPaymentMethods, setIsRefreshingPaymentMethods] = useState(false);
 
     const createForm = useForm<SaleForm>({
         sold_at: toDateTimeLocalValue(new Date()),
@@ -137,6 +139,10 @@ export default function SalesIndex({
         recent_search: saleFilters.recent_search,
         recent_per_page: String(saleFilters.recent_per_page),
     });
+
+    useEffect(() => {
+        setAvailablePaymentMethodOptions(paymentMethodOptions);
+    }, [paymentMethodOptions]);
 
     useEffect(() => {
         recentFilterForm.setData({
@@ -156,8 +162,8 @@ export default function SalesIndex({
     }, [productSearch, saleProducts]);
 
     const selectedPaymentMethod = useMemo(
-        () => paymentMethodOptions.find((option) => option.value === createForm.data.payment_method_config_id) ?? null,
-        [createForm.data.payment_method_config_id, paymentMethodOptions],
+        () => availablePaymentMethodOptions.find((option) => option.value === createForm.data.payment_method_config_id) ?? null,
+        [availablePaymentMethodOptions, createForm.data.payment_method_config_id],
     );
 
     const cartItems = useMemo(
@@ -189,7 +195,7 @@ export default function SalesIndex({
     const discountAmount = Number(createForm.data.discount_amount || 0);
     const totalAmount = Math.max(0, subtotal - discountAmount);
     const noProductsAvailable = saleProducts.length === 0;
-    const noPaymentMethods = paymentMethodOptions.length === 0;
+    const noPaymentMethods = availablePaymentMethodOptions.length === 0;
 
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
@@ -237,6 +243,46 @@ export default function SalesIndex({
             'items',
             createForm.data.items.filter((item) => item.sale_product_id !== productId),
         );
+    };
+
+    const refreshPaymentMethodOptions = async (open: boolean) => {
+        if (!open || isRefreshingPaymentMethods) {
+            return;
+        }
+
+        setIsRefreshingPaymentMethods(true);
+
+        try {
+            const response = await fetch('/admin/payment-methods/options', {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error('Gagal memuat metode pembayaran terbaru.');
+            }
+
+            const data = (await response.json()) as { payment_method_options?: PaymentMethodOption[] };
+            const nextOptions = data.payment_method_options ?? [];
+
+            setAvailablePaymentMethodOptions(nextOptions);
+
+            if (nextOptions.length === 0) {
+                createForm.setData('payment_method_config_id', '');
+
+                return;
+            }
+
+            if (!nextOptions.some((option) => option.value === createForm.data.payment_method_config_id)) {
+                createForm.setData('payment_method_config_id', nextOptions[0]?.value ?? '');
+            }
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsRefreshingPaymentMethods(false);
+        }
     };
 
     const submitCreate: FormEventHandler = (event) => {
@@ -521,19 +567,21 @@ export default function SalesIndex({
                                             <Select
                                                 value={createForm.data.payment_method_config_id || 'none'}
                                                 onValueChange={(value) => createForm.setData('payment_method_config_id', value === 'none' ? '' : value)}
+                                                onOpenChange={(open) => void refreshPaymentMethodOptions(open)}
                                             >
                                                 <SelectTrigger id="payment-method-config">
                                                     <SelectValue placeholder="Pilih metode pembayaran" />
                                                 </SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="none">Belum dipilih</SelectItem>
-                                                    {paymentMethodOptions.map((option) => (
+                                                    {availablePaymentMethodOptions.map((option) => (
                                                         <SelectItem key={option.value} value={option.value}>
                                                             {option.label} - {option.type_label}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            <p className="text-muted-foreground text-xs">{isRefreshingPaymentMethods ? 'Memuat metode pembayaran terbaru...' : 'Daftar akan dicek ulang saat dropdown dibuka.'}</p>
                                             <InputError message={createForm.errors.payment_method_config_id} />
                                         </div>
 

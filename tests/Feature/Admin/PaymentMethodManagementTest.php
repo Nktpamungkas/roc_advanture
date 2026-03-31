@@ -63,6 +63,31 @@ class PaymentMethodManagementTest extends TestCase
         ]);
     }
 
+    public function test_admin_toko_can_fetch_active_payment_method_options_for_operational_forms(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+
+        PaymentMethodConfig::query()->create([
+            'name' => 'QRIS Toko',
+            'type' => 'qris',
+            'code' => 'qris-toko',
+            'active' => true,
+        ]);
+
+        PaymentMethodConfig::query()->create([
+            'name' => 'Transfer Lama',
+            'type' => 'transfer',
+            'code' => 'transfer-lama',
+            'active' => false,
+        ]);
+
+        $this->actingAs($admin)
+            ->getJson(route('admin.payment-methods.options'))
+            ->assertOk()
+            ->assertJsonCount(1, 'payment_method_options')
+            ->assertJsonPath('payment_method_options.0.label', 'QRIS Toko');
+    }
+
     private function createUserWithRole(string $role, array $attributes = []): User
     {
         $user = User::factory()->create($attributes);

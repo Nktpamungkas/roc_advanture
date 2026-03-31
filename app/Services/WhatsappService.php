@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\Admin\NotificationSettingController;
 use App\Models\Rental;
 use App\Models\WaLog;
 use App\Support\Rental\RentalStatuses;
@@ -15,6 +16,7 @@ class WhatsappService
 {
     public function __construct(
         private readonly HttpFactory $http,
+        private readonly AppSettingService $appSettingService,
     ) {
     }
 
@@ -40,54 +42,82 @@ class WhatsappService
             return 0;
         }
 
-        $leadHours = max(1, (int) config('services.whatsapp.rental_reminder_lead_hours', 6));
         $now = now();
-
-        $rentals = Rental::query()
-            ->with(['customer', 'items.inventoryUnit'])
-            ->whereIn('rental_status', [
-                RentalStatuses::BOOKED,
-                RentalStatuses::PICKED_UP,
-                RentalStatuses::LATE,
-            ])
-            ->whereNotNull('due_at')
-            ->whereNotNull('customer_id')
-            ->whereHas('customer', fn ($query) => $query->whereNotNull('phone_whatsapp')->where('phone_whatsapp', '!=', ''))
-            ->get()
-            ->filter(function (Rental $rental) use ($leadHours, $now): bool {
-                $triggerAt = $rental->due_at?->copy()->subHours($leadHours);
-
-                return $triggerAt !== null
-                    && $now->greaterThanOrEqualTo($triggerAt)
-                    && $now->lessThanOrEqualTo($rental->due_at);
-            })
-            ->values();
-
         $sentCount = 0;
 
-        foreach ($rentals as $rental) {
-            $alreadySent = WaLog::query()
-                ->where('rental_id', $rental->id)
-                ->where('message_type', 'rental_due_reminder')
-                ->whereIn('status', ['pending', 'sent'])
-                ->exists();
+        if ($this->isRentalReminderEnabled()) {
+            $leadHours = $this->resolveReminderLeadHours();
+            $template = $this->resolveRentalReminderTemplate();
 
-            if ($alreadySent) {
-                continue;
+            $rentals = $this->baseReminderRentalQuery()
+                ->get()
+                ->filter(function (Rental $rental) use ($leadHours, $now): bool {
+                    $triggerAt = $rental->due_at?->copy()->subHours($leadHours);
+
+                    return $triggerAt !== null
+                        && $now->greaterThanOrEqualTo($triggerAt)
+                        && $now->lessThanOrEqualTo($rental->due_at);
+                })
+                ->values();
+
+            foreach ($rentals as $rental) {
+                $alreadySent = WaLog::query()
+                    ->where('rental_id', $rental->id)
+                    ->where('message_type', 'rental_due_reminder')
+                    ->whereIn('status', ['pending', 'sent'])
+                    ->exists();
+
+                if ($alreadySent) {
+                    continue;
+                }
+
+                $phone = $this->resolveRentalPhone($rental);
+                $message = $this->buildReminderMessageFromTemplate($rental, $template);
+
+                $this->dispatchMessage(
+                    rental: $rental,
+                    phone: $phone,
+                    messageType: 'rental_due_reminder',
+                    message: $message,
+                    scheduledAt: $rental->due_at?->copy()->subHours($leadHours) ?? now(),
+                );
+
+                $sentCount++;
             }
+        }
 
-            $phone = $this->resolveRentalPhone($rental);
-            $message = $this->buildRentalReminderMessage($rental);
+        if ($this->isOverdueReminderEnabled()) {
+            $delayHours = $this->resolveOverdueReminderDelayHours();
+            $template = $this->resolveOverdueReminderTemplate();
 
-            $this->dispatchMessage(
-                rental: $rental,
-                phone: $phone,
-                messageType: 'rental_due_reminder',
-                message: $message,
-                scheduledAt: $rental->due_at?->copy()->subHours($leadHours) ?? now(),
-            );
+            $rentals = $this->baseReminderRentalQuery()
+                ->where('due_at', '<', $now->copy()->subHours($delayHours))
+                ->get();
 
-            $sentCount++;
+            foreach ($rentals as $rental) {
+                $alreadySent = WaLog::query()
+                    ->where('rental_id', $rental->id)
+                    ->where('message_type', 'rental_overdue_reminder')
+                    ->whereIn('status', ['pending', 'sent'])
+                    ->exists();
+
+                if ($alreadySent) {
+                    continue;
+                }
+
+                $phone = $this->resolveRentalPhone($rental);
+                $message = $this->buildReminderMessageFromTemplate($rental, $template);
+
+                $this->dispatchMessage(
+                    rental: $rental,
+                    phone: $phone,
+                    messageType: 'rental_overdue_reminder',
+                    message: $message,
+                    scheduledAt: $rental->due_at?->copy()->addHours($delayHours) ?? now(),
+                );
+
+                $sentCount++;
+            }
         }
 
         return $sentCount;
@@ -129,20 +159,7 @@ class WhatsappService
 
     public function buildRentalReminderMessage(Rental $rental): string
     {
-        $lines = [
-            'Halo '.($rental->customer?->name ?? 'Customer').',',
-            'Ini pengingat pengembalian sewa dari Roc Advanture.',
-            'No Rental: '.$rental->rental_no,
-            'Batas kembali: '.$this->formatDateTime($rental->due_at),
-            '',
-            'Item Sewa:',
-            ...$this->buildRentalItemLines($rental),
-            '',
-            'Sisa Tagihan: '.$this->formatCurrency($rental->remaining_amount),
-            'Mohon barang dikembalikan tepat waktu. Terima kasih.',
-        ];
-
-        return implode(PHP_EOL, $lines);
+        return $this->buildReminderMessageFromTemplate($rental, $this->resolveRentalReminderTemplate());
     }
 
     private function buildRentalItemLines(Rental $rental): array
@@ -299,6 +316,82 @@ class WhatsappService
     private function isEnabled(): bool
     {
         return (bool) config('services.whatsapp.enabled', false);
+    }
+
+    private function isRentalReminderEnabled(): bool
+    {
+        return $this->appSettingService->getBool(NotificationSettingController::RENTAL_REMINDER_ENABLED_KEY, true);
+    }
+
+    private function isOverdueReminderEnabled(): bool
+    {
+        return $this->appSettingService->getBool(NotificationSettingController::OVERDUE_REMINDER_ENABLED_KEY, false);
+    }
+
+    private function resolveReminderLeadHours(): int
+    {
+        $defaultLeadHours = max(1, (int) config('services.whatsapp.rental_reminder_lead_hours', 6));
+
+        return max(
+            1,
+            $this->appSettingService->getInt(NotificationSettingController::RENTAL_REMINDER_LEAD_HOURS_KEY, $defaultLeadHours),
+        );
+    }
+
+    private function resolveOverdueReminderDelayHours(): int
+    {
+        return max(
+            1,
+            $this->appSettingService->getInt(NotificationSettingController::OVERDUE_REMINDER_DELAY_HOURS_KEY, 2),
+        );
+    }
+
+    private function resolveRentalReminderTemplate(): string
+    {
+        return $this->appSettingService->getString(
+            NotificationSettingController::RENTAL_REMINDER_TEMPLATE_KEY,
+            NotificationSettingController::defaultRentalReminderTemplate(),
+        ) ?? NotificationSettingController::defaultRentalReminderTemplate();
+    }
+
+    private function resolveOverdueReminderTemplate(): string
+    {
+        return $this->appSettingService->getString(
+            NotificationSettingController::OVERDUE_REMINDER_TEMPLATE_KEY,
+            NotificationSettingController::defaultOverdueReminderTemplate(),
+        ) ?? NotificationSettingController::defaultOverdueReminderTemplate();
+    }
+
+    private function baseReminderRentalQuery()
+    {
+        return Rental::query()
+            ->with(['customer', 'creator', 'items.inventoryUnit'])
+            ->whereIn('rental_status', [
+                RentalStatuses::BOOKED,
+                RentalStatuses::PICKED_UP,
+                RentalStatuses::LATE,
+            ])
+            ->whereNotNull('due_at')
+            ->whereNotNull('customer_id')
+            ->whereHas('customer', fn ($query) => $query->whereNotNull('phone_whatsapp')->where('phone_whatsapp', '!=', ''));
+    }
+
+    private function buildReminderMessageFromTemplate(Rental $rental, string $template): string
+    {
+        $message = strtr(str_replace("\r\n", "\n", $template), [
+            '{customer_name}' => $rental->customer?->name ?? 'Customer',
+            '{rental_no}' => $rental->rental_no ?? '-',
+            '{starts_at}' => $this->formatDateTime($rental->starts_at),
+            '{due_at}' => $this->formatDateTime($rental->due_at),
+            '{items}' => implode(PHP_EOL, $this->buildRentalItemLines($rental)),
+            '{subtotal}' => $this->formatCurrency($rental->final_subtotal ?? $rental->subtotal),
+            '{remaining_amount}' => $this->formatCurrency($rental->remaining_amount),
+            '{guarantee_note}' => $rental->guarantee_note ?: '-',
+            '{admin_name}' => $rental->creator?->name ?? '-',
+            '{store_name}' => (string) config('app.name', 'Roc Advanture'),
+        ]);
+
+        return trim((string) preg_replace("/\n{3,}/", "\n\n", $message));
     }
 
     private function formatCurrency(string|float|int|null $value): string

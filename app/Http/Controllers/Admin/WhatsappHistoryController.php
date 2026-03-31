@@ -147,7 +147,7 @@ class WhatsappHistoryController extends Controller
     private function queryForTab(string $tab): Builder
     {
         return match ($tab) {
-            'reminders' => WaLog::query()->where('message_type', 'rental_due_reminder'),
+            'reminders' => WaLog::query()->whereIn('message_type', ['rental_due_reminder', 'rental_overdue_reminder']),
             'invoices' => WaLog::query()->where('message_type', 'like', 'rental_invoice%'),
             default => WaLog::query()->whereRaw('1 = 0'),
         };
@@ -234,6 +234,10 @@ class WhatsappHistoryController extends Controller
     {
         if ($messageType === 'rental_due_reminder') {
             return 'Reminder Jatuh Tempo';
+        }
+
+        if ($messageType === 'rental_overdue_reminder') {
+            return 'Reminder Telat';
         }
 
         if (str_starts_with($messageType, 'rental_invoice')) {
