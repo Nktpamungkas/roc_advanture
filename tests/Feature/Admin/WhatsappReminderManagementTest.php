@@ -53,6 +53,10 @@ class WhatsappReminderManagementTest extends TestCase
 
         [$admin, $rental] = $this->createActiveRental();
 
+        $rental->update([
+            'guarantee_note' => 'KTP Asli',
+        ]);
+
         $response = $this->actingAs($admin)->post(route('admin.rentals.send-invoice-whatsapp', $rental));
 
         $response->assertRedirect(route('admin.rentals.show', $rental));
@@ -65,7 +69,8 @@ class WhatsappReminderManagementTest extends TestCase
                 && $request->hasHeader('Authorization', 'testing-token')
                 && $request->isForm()
                 && $request['target'] === '6281234567890'
-                && str_contains((string) $request['message'], 'Invoice Sewa Roc Advanture');
+                && str_contains((string) $request['message'], 'Invoice Sewa Roc Advanture')
+                && str_contains((string) $request['message'], 'Jaminan: KTP Asli');
         });
 
         $this->assertDatabaseHas('wa_logs', [

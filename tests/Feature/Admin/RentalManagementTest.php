@@ -89,6 +89,7 @@ class RentalManagementTest extends TestCase
             'paid_amount' => 100000,
             'payment_method_config_id' => $paymentMethod->id,
             'payment_notes' => 'DP cash di awal',
+            'guarantee_note' => 'KTP Asli',
             'notes' => 'Customer ambil malam hari.',
         ]);
 
@@ -105,6 +106,7 @@ class RentalManagementTest extends TestCase
             'remaining_amount' => 200000,
             'payment_status' => RentalPaymentStatuses::DP_PAID,
             'rental_status' => RentalStatuses::PICKED_UP,
+            'guarantee_note' => 'KTP Asli',
         ]);
 
         $this->assertDatabaseHas('rental_items', [
@@ -265,6 +267,49 @@ class RentalManagementTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_create_rental_with_manual_due_date_and_past_start_date(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        $customer = Customer::query()->create([
+            'name' => 'Customer Manual Date',
+            'phone_whatsapp' => '081111111111',
+        ]);
+
+        $product = Product::query()->create([
+            'name' => 'Carrier 40L',
+            'category' => 'Carrier',
+            'prefix_code' => 'CAR40',
+            'daily_rate' => 50000,
+            'active' => true,
+        ]);
+
+        $unit = InventoryUnit::query()->create([
+            'product_id' => $product->id,
+            'unit_code' => 'CAR40-001',
+            'status' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('admin.rentals.store'), [
+            'customer_id' => $customer->id,
+            'starts_at' => '2026-03-20 18:00:00',
+            'due_at' => '2026-03-22 18:00:00',
+            'inventory_unit_ids' => [$unit->id],
+            'paid_amount' => 0,
+        ]);
+
+        $rental = Rental::query()->firstOrFail();
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+
+        $this->assertDatabaseHas('rentals', [
+            'id' => $rental->id,
+            'starts_at' => '2026-03-20 18:00:00',
+            'due_at' => '2026-03-22 18:00:00',
+            'total_days' => 2,
+            'subtotal' => 100000,
+        ]);
+    }
+
     public function test_admin_can_view_rental_receipt_page(): void
     {
         $admin = $this->createUserWithRole(RoleNames::SUPER_ADMIN);
@@ -287,6 +332,7 @@ class RentalManagementTest extends TestCase
             'remaining_amount' => 0,
             'payment_status' => RentalPaymentStatuses::PAID,
             'rental_status' => RentalStatuses::PICKED_UP,
+            'guarantee_note' => 'SIM C',
         ]);
 
         $this->actingAs($admin)
@@ -295,7 +341,8 @@ class RentalManagementTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('admin/rentals/show')
                 ->where('rental.rental_no', 'ROC-RENT-20260329-0001')
-                ->where('rental.customer.name', 'Customer C'));
+                ->where('rental.customer.name', 'Customer C')
+                ->where('rental.guarantee_note', 'SIM C'));
     }
 
     private function createUserWithRole(string $role, array $attributes = []): User

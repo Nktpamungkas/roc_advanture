@@ -40,6 +40,7 @@ class Rental extends Model
         'settlement_basis',
         'rental_status',
         'notes',
+        'guarantee_note',
     ];
 
     protected function casts(): array

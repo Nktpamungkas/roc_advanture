@@ -29,6 +29,7 @@ class StoreRentalReturnRequest extends FormRequest
             'rental_id' => ['required', 'integer', 'exists:rentals,id'],
             'returned_at' => ['required', 'date'],
             'settlement_basis' => ['required', 'string', Rule::in(SettlementBases::all())],
+            'guarantee_returned' => ['nullable', 'boolean'],
             'payment_method_config_id' => ['nullable', 'integer', 'exists:payment_method_configs,id'],
             'payment_notes' => ['nullable', 'string', 'max:5000'],
             'notes' => ['nullable', 'string', 'max:5000'],
@@ -73,6 +74,10 @@ class StoreRentalReturnRequest extends FormRequest
 
             if ($rental->returnRecord !== null) {
                 $validator->errors()->add('rental_id', 'Transaksi ini sudah pernah diproses pengembaliannya.');
+            }
+
+            if (filled($rental->guarantee_note) && ! $this->boolean('guarantee_returned')) {
+                $validator->errors()->add('guarantee_returned', 'Jaminan wajib ditandai sudah dikembalikan sebelum pengembalian disimpan.');
             }
 
             $itemIds = collect($this->input('items', []))

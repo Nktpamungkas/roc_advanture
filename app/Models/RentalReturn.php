@@ -21,6 +21,7 @@ class RentalReturn extends Model
         'final_total_days',
         'final_subtotal',
         'settlement_amount',
+        'guarantee_returned',
         'notes',
     ];
 
@@ -30,6 +31,7 @@ class RentalReturn extends Model
             'returned_at' => 'datetime',
             'final_subtotal' => 'decimal:2',
             'settlement_amount' => 'decimal:2',
+            'guarantee_returned' => 'boolean',
         ];
     }
 

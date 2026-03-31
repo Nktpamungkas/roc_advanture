@@ -17,6 +17,7 @@ interface RentalReceipt {
     final_subtotal: string | null;
     paid_amount: string;
     remaining_amount: string;
+    guarantee_note: string | null;
     dp_override_reason: string | null;
     notes: string | null;
     payment_method: {
@@ -88,6 +89,7 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
         { label: 'Nama', value: rental.customer.name },
         { label: 'No. Tlp', value: rental.customer.phone_whatsapp },
         { label: 'Alamat', value: rental.customer.address },
+        { label: 'Jaminan', value: rental.guarantee_note },
     ].filter((row): row is { label: string; value: string } => Boolean(row.value && row.value.trim()));
     const paymentRows = rental.payments.map((payment) => ({
         id: payment.id,

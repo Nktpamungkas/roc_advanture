@@ -114,6 +114,7 @@ class RentalCreationService
                 'settlement_basis' => null,
                 'rental_status' => RentalStatuses::PICKED_UP,
                 'notes' => $validated['notes'] ?? null,
+                'guarantee_note' => $validated['guarantee_note'] ?? null,
             ]);
 
             $rental->items()->createMany(

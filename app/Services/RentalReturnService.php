@@ -83,6 +83,7 @@ class RentalReturnService
                 'final_total_days' => $finalTotalDays,
                 'final_subtotal' => $finalSubtotal,
                 'settlement_amount' => $settlementAmount,
+                'guarantee_returned' => (bool) ($validated['guarantee_returned'] ?? false),
                 'notes' => $validated['notes'] ?? null,
             ]);
 

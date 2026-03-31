@@ -49,7 +49,7 @@ class RentalReturnManagementTest extends TestCase
     public function test_admin_toko_can_process_rental_return_and_update_unit_statuses(): void
     {
         $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
-        [$rental, $firstUnit, $secondUnit] = $this->createActiveRental();
+        [$rental, $firstUnit, $secondUnit] = $this->createActiveRental('KTP Asli');
         $paymentMethod = PaymentMethodConfig::query()->create([
             'name' => 'Cash Counter',
             'type' => 'cash',
@@ -61,6 +61,7 @@ class RentalReturnManagementTest extends TestCase
             'rental_id' => $rental->id,
             'returned_at' => '2026-04-03 20:00:00',
             'settlement_basis' => 'contract',
+            'guarantee_returned' => true,
             'payment_method_config_id' => $paymentMethod->id,
             'payment_notes' => 'Dilunasi saat return.',
             'notes' => 'Semua barang kembali lengkap.',
@@ -85,6 +86,7 @@ class RentalReturnManagementTest extends TestCase
             'checked_by' => $admin->id,
             'charge_basis' => 'contract',
             'settlement_amount' => 480000,
+            'guarantee_returned' => true,
             'notes' => 'Semua barang kembali lengkap.',
         ]);
 
@@ -126,6 +128,36 @@ class RentalReturnManagementTest extends TestCase
             'payment_method_config_id' => $paymentMethod->id,
             'amount' => 480000,
         ]);
+    }
+
+    public function test_return_with_guarantee_requires_confirmation_that_guarantee_was_returned(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::SUPER_ADMIN);
+        [$rental] = $this->createActiveRental('KTP + STNK');
+
+        $this->from(route('admin.returns.index'))
+            ->actingAs($admin)
+            ->post(route('admin.returns.store'), [
+                'rental_id' => $rental->id,
+                'returned_at' => '2026-04-03 20:00:00',
+                'settlement_basis' => 'contract',
+                'items' => [
+                    [
+                        'rental_item_id' => $rental->items[0]->id,
+                        'next_unit_status' => InventoryUnitStatuses::READY_UNCLEAN,
+                        'notes' => '',
+                    ],
+                    [
+                        'rental_item_id' => $rental->items[1]->id,
+                        'next_unit_status' => InventoryUnitStatuses::READY_UNCLEAN,
+                        'notes' => '',
+                    ],
+                ],
+            ])
+            ->assertRedirect(route('admin.returns.index'))
+            ->assertSessionHasErrors('guarantee_returned');
+
+        $this->assertDatabaseCount('returns', 0);
     }
 
     public function test_maintenance_or_retired_return_requires_item_note(): void
@@ -233,7 +265,7 @@ class RentalReturnManagementTest extends TestCase
     /**
      * @return array{0: Rental, 1: InventoryUnit, 2: InventoryUnit}
      */
-    private function createActiveRental(): array
+    private function createActiveRental(?string $guaranteeNote = null): array
     {
         $customer = Customer::query()->create([
             'name' => 'Customer Return',
@@ -273,6 +305,7 @@ class RentalReturnManagementTest extends TestCase
             'remaining_amount' => 480000,
             'payment_status' => RentalPaymentStatuses::UNPAID,
             'rental_status' => RentalStatuses::PICKED_UP,
+            'guarantee_note' => $guaranteeNote,
         ]);
 
         $rental->items()->createMany([

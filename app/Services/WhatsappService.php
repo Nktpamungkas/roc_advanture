@@ -101,6 +101,14 @@ class WhatsappService
             'Penyewa: '.($rental->customer?->name ?? '-'),
             'Mulai Sewa: '.$this->formatDateTime($rental->starts_at),
             'Harus Kembali: '.$this->formatDateTime($rental->due_at),
+        ];
+
+        if (filled($rental->guarantee_note)) {
+            $lines[] = 'Jaminan: '.$rental->guarantee_note;
+        }
+
+        $lines = [
+            ...$lines,
             '',
             'Item Sewa:',
             ...$this->buildRentalItemLines($rental),

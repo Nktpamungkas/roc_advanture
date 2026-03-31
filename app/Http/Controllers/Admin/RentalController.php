@@ -224,6 +224,7 @@ class RentalController extends Controller
                 'settlement_basis' => $rental->settlement_basis,
                 'rental_status' => $rental->rental_status,
                 'rental_status_label' => RentalStatuses::label($rental->rental_status),
+                'guarantee_note' => $rental->guarantee_note,
                 'notes' => $rental->notes,
                 'payment_method' => [
                     'name' => $rental->payment_method_name_snapshot,

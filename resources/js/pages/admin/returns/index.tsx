@@ -3,6 +3,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,6 +33,7 @@ interface ActiveRentalItem {
     subtotal: string;
     paid_amount: string;
     remaining_amount: string;
+    guarantee_note: string | null;
     is_overdue: boolean;
     items: RentalItemSummary[];
 }
@@ -93,6 +95,7 @@ interface ReturnForm {
     rental_id: string;
     returned_at: string;
     settlement_basis: string;
+    guarantee_returned: boolean;
     payment_method_config_id: string;
     payment_notes: string;
     notes: string;
@@ -171,6 +174,7 @@ export default function ReturnsIndex({
         rental_id: selectedRental ? String(selectedRental.id) : '',
         returned_at: buildReturnedAt(selectedRental?.starts_at),
         settlement_basis: settlementBasisOptions[0]?.value ?? 'contract',
+        guarantee_returned: false,
         payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
         payment_notes: '',
         notes: '',
@@ -203,6 +207,7 @@ export default function ReturnsIndex({
                 rental_id: '',
                 returned_at: buildReturnedAt(),
                 settlement_basis: settlementBasisOptions[0]?.value ?? 'contract',
+                guarantee_returned: false,
                 payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
                 payment_notes: '',
                 notes: '',
@@ -215,6 +220,7 @@ export default function ReturnsIndex({
             rental_id: String(selectedRental.id),
             returned_at: buildReturnedAt(selectedRental.starts_at),
             settlement_basis: settlementBasisOptions[0]?.value ?? 'contract',
+            guarantee_returned: false,
             payment_method_config_id: paymentMethodOptions[0]?.value ?? '',
             payment_notes: '',
             notes: '',
@@ -346,6 +352,7 @@ export default function ReturnsIndex({
 
         return Math.max(0, computedFinalSubtotal - Number(selectedRental.paid_amount || 0));
     }, [computedFinalSubtotal, selectedRental]);
+    const guaranteeStillHeld = Boolean(selectedRental?.guarantee_note && !returnForm.data.guarantee_returned);
 
     const paginationPages = useMemo(() => {
         if (returnPagination.last_page <= 1) {
@@ -432,12 +439,14 @@ export default function ReturnsIndex({
                             {selectedRental ? (
                                 <form className="grid gap-6" onSubmit={submitReturn}>
                                     <div className="grid gap-4 md:grid-cols-2">
-                                        <div className="rounded-2xl border p-4 text-sm"><p className="text-muted-foreground text-xs uppercase tracking-wide">Customer</p><p className="mt-2 font-medium">{selectedRental.customer_name ?? '-'}</p><p className="text-muted-foreground mt-1">{selectedRental.customer_phone ?? '-'}</p><p className="text-muted-foreground mt-3 text-xs">Kontrak {formatCurrency(selectedRental.subtotal)} • Dibayar {formatCurrency(selectedRental.paid_amount)}</p></div>
+                                        <div className="rounded-2xl border p-4 text-sm"><p className="text-muted-foreground text-xs uppercase tracking-wide">Customer</p><p className="mt-2 font-medium">{selectedRental.customer_name ?? '-'}</p><p className="text-muted-foreground mt-1">{selectedRental.customer_phone ?? '-'}</p>{selectedRental.guarantee_note && <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><p className="font-medium">Jaminan dititipkan</p><p className="mt-1 leading-5">{selectedRental.guarantee_note}</p></div>}<p className="text-muted-foreground mt-3 text-xs">Kontrak {formatCurrency(selectedRental.subtotal)} • Dibayar {formatCurrency(selectedRental.paid_amount)}</p></div>
                                         <div className="grid gap-4">
                                             <div className="grid gap-2"><Label htmlFor="returned-at">Waktu Pengembalian</Label><Input id="returned-at" type="datetime-local" min={selectedRental.starts_at ? selectedRental.starts_at.slice(0, 16) : undefined} value={returnForm.data.returned_at} onChange={(event) => returnForm.setData('returned_at', event.target.value)} /><InputError message={returnForm.errors.returned_at} /></div>
                                             <div className="grid gap-2"><Label htmlFor="settlement-basis">Perhitungan Pelunasan</Label><Select value={returnForm.data.settlement_basis} onValueChange={(value) => returnForm.setData('settlement_basis', value)}><SelectTrigger id="settlement-basis"><SelectValue /></SelectTrigger><SelectContent>{settlementBasisOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select><InputError message={returnForm.errors.settlement_basis} /></div>
                                         </div>
                                     </div>
+
+                                    {selectedRental.guarantee_note && <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4"><p className="text-xs font-medium uppercase tracking-wide text-amber-900">Pengembalian Jaminan</p><p className="mt-2 text-sm text-amber-950">Sistem mencatat jaminan fisik penyewa berupa <span className="font-semibold">{selectedRental.guarantee_note}</span>. Pastikan jaminan ini benar-benar sudah dikembalikan ke customer sebelum transaksi return disimpan.</p><div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-3"><Checkbox id="guarantee-returned" checked={returnForm.data.guarantee_returned} onCheckedChange={(checked) => returnForm.setData('guarantee_returned', checked === true)} /><div className="grid gap-1"><Label htmlFor="guarantee-returned" className="cursor-pointer text-sm font-medium text-amber-950">Jaminan sudah dikembalikan ke penyewa</Label><p className="text-xs text-amber-800">Centang ini setelah admin menyerahkan kembali jaminan fisik ke customer.</p></div></div><InputError message={returnForm.errors.guarantee_returned} /></div>}
 
                                     <div className="grid gap-4 md:grid-cols-[1fr_0.9fr]">
                                         <div className="grid gap-4">
@@ -466,7 +475,7 @@ export default function ReturnsIndex({
                                     <div className="grid gap-2"><Label htmlFor="return-notes">Catatan Pengembalian</Label><Textarea id="return-notes" value={returnForm.data.notes} onChange={(event) => returnForm.setData('notes', event.target.value)} /><InputError message={returnForm.errors.notes} /></div>
                                     <InputError message={returnForm.errors.items as string | undefined} />
                                     <InputError message={returnForm.errors.rental_id} />
-                                    <Button type="submit" className="w-full md:w-auto" disabled={returnForm.processing || (computedSettlementAmount > 0 && returnForm.data.payment_method_config_id === '')}>{returnForm.processing && <LoaderCircle className="h-4 w-4 animate-spin" />}Proses Pengembalian & Pelunasan</Button>
+                                    <Button type="submit" className="w-full md:w-auto" disabled={returnForm.processing || (computedSettlementAmount > 0 && returnForm.data.payment_method_config_id === '') || guaranteeStillHeld}>{returnForm.processing && <LoaderCircle className="h-4 w-4 animate-spin" />}Proses Pengembalian & Pelunasan</Button>
                                 </form>
                             ) : <div className="text-muted-foreground rounded-2xl border border-dashed p-6 text-sm">Belum ada rental aktif yang bisa diproses.</div>}
                         </CardContent>

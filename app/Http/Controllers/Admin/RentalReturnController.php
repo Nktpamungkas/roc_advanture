@@ -85,6 +85,7 @@ class RentalReturnController extends Controller
                 'subtotal' => (string) $rental->subtotal,
                 'paid_amount' => (string) $rental->paid_amount,
                 'remaining_amount' => (string) $rental->remaining_amount,
+                'guarantee_note' => $rental->guarantee_note,
                 'is_overdue' => $rental->due_at !== null && $rental->due_at->isPast(),
                 'items' => $rental->items
                     ->map(fn ($item) => [

@@ -101,6 +101,7 @@ interface RentalForm {
     customer_name: string;
     customer_phone_whatsapp: string;
     customer_address: string;
+    guarantee_note: string;
     starts_at: string;
     rental_days: string;
     due_at: string;
@@ -111,6 +112,8 @@ interface RentalForm {
     dp_override_reason: string;
     notes: string;
 }
+
+type RentalDurationInputSource = 'rental_days' | 'due_at';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
@@ -155,6 +158,17 @@ const calculateDueAtValue = (startsAtValue: string, rentalDaysValue: string) => 
     return toDateTimeLocalValue(startsAt);
 };
 
+const calculateRentalDaysValue = (startsAtValue: string, dueAtValue: string) => {
+    const startsAt = new Date(startsAtValue);
+    const dueAt = new Date(dueAtValue);
+
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(dueAt.getTime()) || dueAt.getTime() <= startsAt.getTime()) {
+        return '';
+    }
+
+    return String(Math.max(1, Math.ceil((dueAt.getTime() - startsAt.getTime()) / (1000 * 60 * 60 * 24))));
+};
+
 export default function RentalsIndex({
     customers,
     availableUnits,
@@ -176,6 +190,7 @@ export default function RentalsIndex({
 }) {
     const { flash } = usePage<SharedData>().props;
     const [unitSearch, setUnitSearch] = useState('');
+    const [durationInputSource, setDurationInputSource] = useState<RentalDurationInputSource>('rental_days');
     const startsAtDefault = defaultStartAt();
     const dueAtDefault = calculateDueAtValue(startsAtDefault, '1');
 
@@ -184,6 +199,7 @@ export default function RentalsIndex({
         customer_name: '',
         customer_phone_whatsapp: '',
         customer_address: '',
+        guarantee_note: '',
         starts_at: startsAtDefault,
         rental_days: '1',
         due_at: dueAtDefault,
@@ -200,16 +216,33 @@ export default function RentalsIndex({
         recent_per_page: String(rentalFilters.recent_per_page),
     });
 
-    const computedDueAt = useMemo(
-        () => calculateDueAtValue(createForm.data.starts_at, createForm.data.rental_days),
-        [createForm.data.rental_days, createForm.data.starts_at],
-    );
+    const computedDueAt = useMemo(() => {
+        if (durationInputSource !== 'rental_days') {
+            return createForm.data.due_at;
+        }
+
+        return calculateDueAtValue(createForm.data.starts_at, createForm.data.rental_days);
+    }, [createForm.data.due_at, createForm.data.rental_days, createForm.data.starts_at, durationInputSource]);
+
+    const computedRentalDays = useMemo(() => {
+        if (durationInputSource !== 'due_at') {
+            return createForm.data.rental_days;
+        }
+
+        return calculateRentalDaysValue(createForm.data.starts_at, createForm.data.due_at);
+    }, [createForm.data.due_at, createForm.data.rental_days, createForm.data.starts_at, durationInputSource]);
 
     useEffect(() => {
-        if (computedDueAt !== '' && computedDueAt !== createForm.data.due_at) {
+        if (durationInputSource === 'rental_days' && computedDueAt !== createForm.data.due_at) {
             createForm.setData('due_at', computedDueAt);
         }
-    }, [computedDueAt]);
+    }, [computedDueAt, createForm, createForm.data.due_at, durationInputSource]);
+
+    useEffect(() => {
+        if (durationInputSource === 'due_at' && computedRentalDays !== createForm.data.rental_days) {
+            createForm.setData('rental_days', computedRentalDays);
+        }
+    }, [computedRentalDays, createForm, createForm.data.rental_days, durationInputSource]);
 
     const exactCustomerMatch = useMemo(
         () => customers.find((customer) => customer.phone_whatsapp.trim() === createForm.data.customer_phone_whatsapp.trim()) ?? null,
@@ -315,6 +348,20 @@ export default function RentalsIndex({
         }
 
         createForm.setData('inventory_unit_ids', createForm.data.inventory_unit_ids.filter((selectedId) => selectedId !== unitId));
+    };
+
+    const updateStartsAt = (value: string) => {
+        createForm.setData('starts_at', value);
+    };
+
+    const updateRentalDays = (value: string) => {
+        setDurationInputSource('rental_days');
+        createForm.setData('rental_days', value);
+    };
+
+    const updateDueAt = (value: string) => {
+        setDurationInputSource('due_at');
+        createForm.setData('due_at', value);
     };
 
     const submitCreate: FormEventHandler = (event) => {
@@ -442,6 +489,17 @@ export default function RentalsIndex({
                                             <Textarea id="customer-address" rows={3} value={createForm.data.customer_address} onChange={(event) => createForm.setData('customer_address', event.target.value)} />
                                             <InputError message={createForm.errors.customer_address} />
                                         </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="guarantee-note">Jaminan</Label>
+                                            <Input
+                                                id="guarantee-note"
+                                                value={createForm.data.guarantee_note}
+                                                onChange={(event) => createForm.setData('guarantee_note', event.target.value)}
+                                                placeholder="Contoh: KTP, SIM C, STNK motor"
+                                            />
+                                            <p className="text-muted-foreground text-xs">Jaminan ini fisik dan hanya dicatat di sistem untuk dikembalikan saat proses return.</p>
+                                            <InputError message={createForm.errors.guarantee_note} />
+                                        </div>
 
                                         {customerSuggestions.length > 0 && (
                                             <div className="rounded-2xl border border-dashed p-4">
@@ -492,17 +550,17 @@ export default function RentalsIndex({
                                 <div className="grid gap-4 md:grid-cols-3">
                                     <div className="grid gap-2">
                                         <Label htmlFor="starts-at">Mulai Sewa</Label>
-                                        <Input id="starts-at" type="datetime-local" value={createForm.data.starts_at} onChange={(event) => createForm.setData('starts_at', event.target.value)} />
+                                        <Input id="starts-at" type="datetime-local" value={createForm.data.starts_at} onChange={(event) => updateStartsAt(event.target.value)} />
                                         <InputError message={createForm.errors.starts_at} />
                                     </div>
                                     <div className="grid gap-2">
                                         <Label htmlFor="rental-days">Lama Sewa (Hari)</Label>
-                                        <Input id="rental-days" type="number" min="1" value={createForm.data.rental_days} onChange={(event) => createForm.setData('rental_days', event.target.value)} />
+                                        <Input id="rental-days" type="number" min="1" value={createForm.data.rental_days} onChange={(event) => updateRentalDays(event.target.value)} />
                                         <InputError message={createForm.errors.rental_days} />
                                     </div>
                                     <div className="grid gap-2">
                                         <Label htmlFor="due-at">Harus Kembali</Label>
-                                        <Input id="due-at" type="datetime-local" value={createForm.data.due_at} readOnly />
+                                        <Input id="due-at" type="datetime-local" value={createForm.data.due_at} onChange={(event) => updateDueAt(event.target.value)} />
                                         <InputError message={createForm.errors.due_at} />
                                     </div>
                                 </div>

@@ -34,6 +34,7 @@ class StoreRentalRequest extends FormRequest
             'payment_method_config_id' => $this->filled('payment_method_config_id') ? (int) $this->input('payment_method_config_id') : null,
             'payment_notes' => $this->filled('payment_notes') ? $this->input('payment_notes') : null,
             'dp_override_reason' => $this->filled('dp_override_reason') ? trim((string) $this->input('dp_override_reason')) : null,
+            'guarantee_note' => $this->filled('guarantee_note') ? trim((string) $this->input('guarantee_note')) : null,
         ]);
     }
 
@@ -58,6 +59,7 @@ class StoreRentalRequest extends FormRequest
             'payment_notes' => ['nullable', 'string', 'max:5000'],
             'dp_override_reason' => ['nullable', 'string', 'max:5000'],
             'notes' => ['nullable', 'string', 'max:5000'],
+            'guarantee_note' => ['nullable', 'string', 'max:255'],
         ];
     }
 
