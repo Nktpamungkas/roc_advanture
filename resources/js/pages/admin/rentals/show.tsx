@@ -83,8 +83,8 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
     const paymentNotes = rental.payments
         .map((payment) => payment.notes)
         .filter((note): note is string => Boolean(note && note.trim()));
-    const issuedDate = formatDate(rental.starts_at);
-    const dueDate = formatDate(rental.due_at);
+    const issuedDate = rental.starts_at ? `${formatDate(rental.starts_at)} ${formatTime(rental.starts_at)}` : '-';
+    const dueDate = rental.due_at ? `${formatDate(rental.due_at)} ${formatTime(rental.due_at)}` : '-';
     const customerRows = [
         { label: 'Nama', value: rental.customer.name },
         { label: 'No. Tlp', value: rental.customer.phone_whatsapp },

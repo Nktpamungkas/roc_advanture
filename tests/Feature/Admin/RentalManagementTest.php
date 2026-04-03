@@ -291,8 +291,9 @@ class RentalManagementTest extends TestCase
 
         $response = $this->actingAs($admin)->post(route('admin.rentals.store'), [
             'customer_id' => $customer->id,
-            'starts_at' => '2026-03-20 18:00:00',
-            'due_at' => '2026-03-22 18:00:00',
+            'starts_at' => '2026-03-20 22:00:00',
+            'rental_days' => 2,
+            'due_at' => '2026-03-21 23:23:00',
             'inventory_unit_ids' => [$unit->id],
             'paid_amount' => 0,
         ]);
@@ -303,8 +304,8 @@ class RentalManagementTest extends TestCase
 
         $this->assertDatabaseHas('rentals', [
             'id' => $rental->id,
-            'starts_at' => '2026-03-20 18:00:00',
-            'due_at' => '2026-03-22 18:00:00',
+            'starts_at' => '2026-03-20 22:00:00',
+            'due_at' => '2026-03-21 23:23:00',
             'total_days' => 2,
             'subtotal' => 100000,
         ]);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\ExtendRentalRequest;
 use App\Http\Requests\Admin\StoreRentalRequest;
 use App\Models\Customer;
 use App\Models\InventoryUnit;
@@ -12,6 +13,7 @@ use App\Models\SeasonRule;
 use App\Services\AdminAccessService;
 use App\Services\CustomerRatingService;
 use App\Services\RentalCreationService;
+use App\Services\RentalExtensionService;
 use App\Services\WhatsappService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentMethods;
@@ -28,6 +30,7 @@ class RentalController extends Controller
         private readonly AdminAccessService $adminAccessService,
         private readonly CustomerRatingService $customerRatingService,
         private readonly RentalCreationService $rentalCreationService,
+        private readonly RentalExtensionService $rentalExtensionService,
         private readonly WhatsappService $whatsappService,
     ) {}
 
@@ -140,23 +143,7 @@ class RentalController extends Controller
             'customers' => $customers,
             'availableUnits' => $availableUnits,
             'seasonRules' => $seasonRules,
-            'paymentMethodOptions' => PaymentMethodConfig::query()
-                ->where('active', true)
-                ->orderBy('sort_order')
-                ->orderBy('name')
-                ->get()
-                ->map(fn (PaymentMethodConfig $paymentMethodConfig) => [
-                    'value' => (string) $paymentMethodConfig->id,
-                    'label' => $paymentMethodConfig->name,
-                    'type' => $paymentMethodConfig->type,
-                    'type_label' => PaymentMethods::label($paymentMethodConfig->type),
-                    'instructions' => $paymentMethodConfig->instructions,
-                    'bank_name' => $paymentMethodConfig->bank_name,
-                    'account_number' => $paymentMethodConfig->account_number,
-                    'account_name' => $paymentMethodConfig->account_name,
-                    'qr_image_path' => $paymentMethodConfig->qr_image_path,
-                ])
-                ->values(),
+            'paymentMethodOptions' => $this->activePaymentMethodOptions(),
             'recentRentals' => $recentRentals,
             'rentalFilters' => $rentalFilters,
             'recentRentalPagination' => [
@@ -188,6 +175,65 @@ class RentalController extends Controller
         $rental = $this->rentalCreationService->create($actor, $request->validated());
 
         return to_route('admin.rentals.show', $rental)->with('success', 'Transaksi penyewaan berhasil dibuat.');
+    }
+
+    public function extendForm(Rental $rental): Response
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        $rental->load([
+            'customer',
+            'creator',
+            'items.inventoryUnit.product',
+            'payments.receiver',
+        ]);
+
+        abort_unless(in_array($rental->rental_status, [RentalStatuses::PICKED_UP, RentalStatuses::LATE], true), 404);
+
+        return Inertia::render('admin/rentals/extend', [
+            'rental' => [
+                'id' => $rental->id,
+                'rental_no' => $rental->rental_no,
+                'starts_at' => $rental->starts_at?->toIso8601String(),
+                'due_at' => $rental->due_at?->toIso8601String(),
+                'total_days' => $rental->total_days,
+                'subtotal' => (string) $rental->subtotal,
+                'paid_amount' => (string) $rental->paid_amount,
+                'remaining_amount' => (string) $rental->remaining_amount,
+                'rental_status' => $rental->rental_status,
+                'rental_status_label' => RentalStatuses::label($rental->rental_status),
+                'customer' => [
+                    'name' => $rental->customer?->name,
+                    'phone_whatsapp' => $rental->customer?->phone_whatsapp,
+                    'address' => $rental->customer?->address,
+                ],
+                'creator' => [
+                    'name' => $rental->creator?->name,
+                ],
+                'items' => $rental->items
+                    ->map(fn ($item) => [
+                        'id' => $item->id,
+                        'product_name_snapshot' => $item->product_name_snapshot,
+                        'inventory_unit_code' => $item->inventoryUnit?->unit_code,
+                        'daily_rate_snapshot' => (string) $item->daily_rate_snapshot,
+                    ])
+                    ->values(),
+            ],
+            'paymentMethodOptions' => $this->activePaymentMethodOptions(),
+        ]);
+    }
+
+    public function extend(ExtendRentalRequest $request, Rental $rental): RedirectResponse
+    {
+        $actor = $request->user();
+
+        abort_unless($actor !== null, 403);
+
+        $rental = $this->rentalExtensionService->extend($actor, $rental, $request->validated());
+
+        return to_route('admin.rentals.show', $rental)->with('success', 'Perpanjangan sewa berhasil disimpan.');
     }
 
     public function show(Rental $rental): Response
@@ -226,6 +272,7 @@ class RentalController extends Controller
                 'rental_status_label' => RentalStatuses::label($rental->rental_status),
                 'guarantee_note' => $rental->guarantee_note,
                 'notes' => $rental->notes,
+                'can_extend' => in_array($rental->rental_status, [RentalStatuses::PICKED_UP, RentalStatuses::LATE], true),
                 'payment_method' => [
                     'name' => $rental->payment_method_name_snapshot,
                     'type' => $rental->payment_method_type_snapshot,
@@ -290,5 +337,29 @@ class RentalController extends Controller
         } catch (\Throwable $exception) {
             return to_route('admin.rentals.show', $rental)->with('error', $exception->getMessage());
         }
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function activePaymentMethodOptions()
+    {
+        return PaymentMethodConfig::query()
+            ->where('active', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (PaymentMethodConfig $paymentMethodConfig) => [
+                'value' => (string) $paymentMethodConfig->id,
+                'label' => $paymentMethodConfig->name,
+                'type' => $paymentMethodConfig->type,
+                'type_label' => PaymentMethods::label($paymentMethodConfig->type),
+                'instructions' => $paymentMethodConfig->instructions,
+                'bank_name' => $paymentMethodConfig->bank_name,
+                'account_number' => $paymentMethodConfig->account_number,
+                'account_name' => $paymentMethodConfig->account_name,
+                'qr_image_path' => $paymentMethodConfig->qr_image_path,
+            ])
+            ->values();
     }
 }

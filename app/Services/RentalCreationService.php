@@ -195,11 +195,15 @@ class RentalCreationService
 
     private function resolveDueAt(CarbonInterface $startsAt, array $validated): CarbonInterface
     {
+        if (! empty($validated['due_at'])) {
+            return Carbon::parse($validated['due_at']);
+        }
+
         if (! empty($validated['rental_days'])) {
             return $startsAt->copy()->addDays((int) $validated['rental_days']);
         }
 
-        return Carbon::parse($validated['due_at']);
+        return $startsAt->copy();
     }
 
     private function calculateTotalDays(CarbonInterface $startsAt, CarbonInterface $dueAt): int

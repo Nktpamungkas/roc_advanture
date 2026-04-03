@@ -126,7 +126,7 @@ class StoreRentalRequest extends FormRequest
                 return;
             }
 
-            if ($rentalDays !== null) {
+            if ($dueAt === null && $rentalDays !== null) {
                 $dueAt = $startsAt->copy()->addDays($rentalDays);
             }
 

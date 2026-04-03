@@ -10,6 +10,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Http\Client\Factory as HttpFactory;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class WhatsappService
@@ -39,28 +40,58 @@ class WhatsappService
     public function sendDueRentalReminders(): int
     {
         if (! $this->isEnabled()) {
+            Log::info('WhatsApp reminder scheduler skipped because integration is disabled.');
+
             return 0;
         }
 
         $now = now();
         $sentCount = 0;
+        $rentals = $this->baseReminderRentalQuery()->get();
+        $rentalReminderEnabled = $this->isRentalReminderEnabled();
+        $overdueReminderEnabled = $this->isOverdueReminderEnabled();
+        $leadHours = $this->resolveReminderLeadHours();
+        $overdueDelayHours = $this->resolveOverdueReminderDelayHours();
 
-        if ($this->isRentalReminderEnabled()) {
-            $leadHours = $this->resolveReminderLeadHours();
+        Log::info('WhatsApp reminder scheduler cycle started.', [
+            'now' => $now->format('Y-m-d H:i:s'),
+            'rental_reminder_enabled' => $rentalReminderEnabled,
+            'rental_reminder_lead_hours' => $leadHours,
+            'overdue_reminder_enabled' => $overdueReminderEnabled,
+            'overdue_reminder_delay_hours' => $overdueDelayHours,
+            'candidate_rentals' => $rentals->count(),
+        ]);
+
+        if ($rentalReminderEnabled) {
             $template = $this->resolveRentalReminderTemplate();
 
-            $rentals = $this->baseReminderRentalQuery()
-                ->get()
-                ->filter(function (Rental $rental) use ($leadHours, $now): bool {
-                    $triggerAt = $rental->due_at?->copy()->subHours($leadHours);
-
-                    return $triggerAt !== null
-                        && $now->greaterThanOrEqualTo($triggerAt)
-                        && $now->lessThanOrEqualTo($rental->due_at);
-                })
-                ->values();
-
             foreach ($rentals as $rental) {
+                $triggerAt = $rental->due_at?->copy()->subHours($leadHours);
+
+                if ($triggerAt === null) {
+                    $this->logReminderSkipped('rental_due_reminder', $rental, 'missing_due_at', $now);
+
+                    continue;
+                }
+
+                if ($now->lessThan($triggerAt)) {
+                    $this->logReminderSkipped('rental_due_reminder', $rental, 'waiting_trigger_window', $now, [
+                        'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                        'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                    ]);
+
+                    continue;
+                }
+
+                if ($rental->due_at !== null && $now->greaterThan($rental->due_at)) {
+                    $this->logReminderSkipped('rental_due_reminder', $rental, 'due_window_passed', $now, [
+                        'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                        'due_at' => $rental->due_at->format('Y-m-d H:i:s'),
+                    ]);
+
+                    continue;
+                }
+
                 $alreadySent = WaLog::query()
                     ->where('rental_id', $rental->id)
                     ->where('message_type', 'rental_due_reminder')
@@ -68,6 +99,11 @@ class WhatsappService
                     ->exists();
 
                 if ($alreadySent) {
+                    $this->logReminderSkipped('rental_due_reminder', $rental, 'already_sent', $now, [
+                        'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                        'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                    ]);
+
                     continue;
                 }
 
@@ -79,22 +115,43 @@ class WhatsappService
                     phone: $phone,
                     messageType: 'rental_due_reminder',
                     message: $message,
-                    scheduledAt: $rental->due_at?->copy()->subHours($leadHours) ?? now(),
+                    scheduledAt: $triggerAt,
                 );
+
+                $this->logReminderSent('rental_due_reminder', $rental, $now, [
+                    'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                    'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                ]);
 
                 $sentCount++;
             }
+        } else {
+            Log::info('WhatsApp due reminder scheduler skipped because the feature is disabled in settings.', [
+                'now' => $now->format('Y-m-d H:i:s'),
+            ]);
         }
 
-        if ($this->isOverdueReminderEnabled()) {
-            $delayHours = $this->resolveOverdueReminderDelayHours();
+        if ($overdueReminderEnabled) {
             $template = $this->resolveOverdueReminderTemplate();
 
-            $rentals = $this->baseReminderRentalQuery()
-                ->where('due_at', '<', $now->copy()->subHours($delayHours))
-                ->get();
-
             foreach ($rentals as $rental) {
+                $triggerAt = $rental->due_at?->copy()->addHours($overdueDelayHours);
+
+                if ($triggerAt === null) {
+                    $this->logReminderSkipped('rental_overdue_reminder', $rental, 'missing_due_at', $now);
+
+                    continue;
+                }
+
+                if ($now->lessThan($triggerAt)) {
+                    $this->logReminderSkipped('rental_overdue_reminder', $rental, 'waiting_overdue_delay', $now, [
+                        'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                        'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                    ]);
+
+                    continue;
+                }
+
                 $alreadySent = WaLog::query()
                     ->where('rental_id', $rental->id)
                     ->where('message_type', 'rental_overdue_reminder')
@@ -102,6 +159,11 @@ class WhatsappService
                     ->exists();
 
                 if ($alreadySent) {
+                    $this->logReminderSkipped('rental_overdue_reminder', $rental, 'already_sent', $now, [
+                        'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                        'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                    ]);
+
                     continue;
                 }
 
@@ -113,12 +175,26 @@ class WhatsappService
                     phone: $phone,
                     messageType: 'rental_overdue_reminder',
                     message: $message,
-                    scheduledAt: $rental->due_at?->copy()->addHours($delayHours) ?? now(),
+                    scheduledAt: $triggerAt,
                 );
+
+                $this->logReminderSent('rental_overdue_reminder', $rental, $now, [
+                    'trigger_at' => $triggerAt->format('Y-m-d H:i:s'),
+                    'due_at' => $rental->due_at?->format('Y-m-d H:i:s'),
+                ]);
 
                 $sentCount++;
             }
+        } else {
+            Log::info('WhatsApp overdue reminder scheduler skipped because the feature is disabled in settings.', [
+                'now' => $now->format('Y-m-d H:i:s'),
+            ]);
         }
+
+        Log::info('WhatsApp reminder scheduler cycle finished.', [
+            'now' => $now->format('Y-m-d H:i:s'),
+            'sent_count' => $sentCount,
+        ]);
 
         return $sentCount;
     }
@@ -249,6 +325,14 @@ class WhatsappService
                 ],
             ]);
 
+            Log::info('WhatsApp message sent successfully.', [
+                'rental_id' => $rental->id,
+                'rental_no' => $rental->rental_no,
+                'message_type' => $messageType,
+                'phone' => $normalizedPhone,
+                'provider_message_id' => $log->provider_message_id,
+            ]);
+
             return $log->fresh();
         } catch (RequestException $exception) {
             $log->update([
@@ -259,6 +343,14 @@ class WhatsappService
                     'attachment' => $attachment['meta'] ?? null,
                     'error' => $exception->response?->json() ?? $exception->getMessage(),
                 ],
+            ]);
+
+            Log::error('WhatsApp message failed to send.', [
+                'rental_id' => $rental->id,
+                'rental_no' => $rental->rental_no,
+                'message_type' => $messageType,
+                'phone' => $normalizedPhone,
+                'error' => $exception->response?->json() ?? $exception->getMessage(),
             ]);
 
             throw new RuntimeException('Pengiriman WhatsApp gagal. Silakan cek token atau koneksi Fonnte.');
@@ -392,6 +484,33 @@ class WhatsappService
         ]);
 
         return trim((string) preg_replace("/\n{3,}/", "\n\n", $message));
+    }
+
+    private function logReminderSkipped(string $messageType, Rental $rental, string $reason, CarbonInterface $now, array $context = []): void
+    {
+        $payload = array_merge([
+            'rental_id' => $rental->id,
+            'rental_no' => $rental->rental_no,
+            'message_type' => $messageType,
+            'reason' => $reason,
+            'now' => $now->format('Y-m-d H:i:s'),
+            'customer_phone' => $rental->customer?->phone_whatsapp,
+        ], $context);
+
+        Log::info('WhatsApp reminder skipped.', $payload);
+    }
+
+    private function logReminderSent(string $messageType, Rental $rental, CarbonInterface $now, array $context = []): void
+    {
+        $payload = array_merge([
+            'rental_id' => $rental->id,
+            'rental_no' => $rental->rental_no,
+            'message_type' => $messageType,
+            'now' => $now->format('Y-m-d H:i:s'),
+            'customer_phone' => $rental->customer?->phone_whatsapp,
+        ], $context);
+
+        Log::info('WhatsApp reminder dispatched.', $payload);
     }
 
     private function formatCurrency(string|float|int|null $value): string

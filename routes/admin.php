@@ -55,6 +55,8 @@ Route::middleware(['auth'])
 
         Route::get('rentals', [RentalController::class, 'index'])->name('rentals.index');
         Route::post('rentals', [RentalController::class, 'store'])->name('rentals.store');
+        Route::get('rentals/{rental}/extend', [RentalController::class, 'extendForm'])->name('rentals.extend.edit');
+        Route::put('rentals/{rental}/extend', [RentalController::class, 'extend'])->name('rentals.extend.update');
         Route::get('rentals/{rental}', [RentalController::class, 'show'])->name('rentals.show');
         Route::post('rentals/{rental}/send-invoice-whatsapp', [RentalController::class, 'sendInvoiceWhatsapp'])->name('rentals.send-invoice-whatsapp');
         Route::get('stock-receipts', [StockReceiptController::class, 'index'])->name('stock-receipts.index');

@@ -15,4 +15,4 @@ Artisan::command('whatsapp:send-rental-reminders', function (WhatsappService $wh
     $this->info("Reminder WA terkirim: {$sentCount}");
 })->purpose('Kirim reminder WhatsApp otomatis untuk rental yang mendekati jatuh tempo');
 
-Schedule::command('whatsapp:send-rental-reminders')->everyFiveMinutes();
+Schedule::command('whatsapp:send-rental-reminders')->everyMinute();
