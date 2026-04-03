@@ -40,6 +40,7 @@ class Rental extends Model
         'settlement_basis',
         'rental_status',
         'notes',
+        'cancel_reason',
         'guarantee_note',
     ];
 
@@ -90,6 +91,16 @@ class Rental extends Model
     public function returnRecord(): HasOne
     {
         return $this->hasOne(RentalReturn::class, 'rental_id');
+    }
+
+    public function extensions(): HasMany
+    {
+        return $this->hasMany(RentalExtension::class);
+    }
+
+    public function latestExtension(): HasOne
+    {
+        return $this->hasOne(RentalExtension::class)->latestOfMany();
     }
 
     public function waLogs(): HasMany

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Payment;
 use App\Models\PaymentMethodConfig;
 use App\Models\Rental;
+use App\Models\RentalExtension;
 use App\Models\User;
 use App\Models\WaLog;
 use App\Support\Rental\PaymentKinds;
@@ -59,6 +60,9 @@ class RentalExtensionService
             $newPaidAmount = round((float) $lockedRental->paid_amount + $extensionPaymentAmount, 2);
             $newRemainingAmount = round(max(0, $newSubtotal - $newPaidAmount), 2);
             $paymentMethodConfig = $this->resolvePaymentMethodConfig($validated['payment_method_config_id'] ?? null);
+            $previousDueAt = $lockedRental->due_at->copy();
+            $previousTotalDays = (int) $lockedRental->total_days;
+            $previousSubtotal = round((float) $lockedRental->subtotal, 2);
 
             $lockedRental->update([
                 'due_at' => $newDueAt,
@@ -96,6 +100,20 @@ class RentalExtensionService
                 ]);
             }
 
+            RentalExtension::query()->create([
+                'rental_id' => $lockedRental->id,
+                'extended_by' => $actor->id,
+                'payment_method_config_id' => $paymentMethodConfig?->id,
+                'previous_due_at' => $previousDueAt,
+                'new_due_at' => $newDueAt,
+                'previous_total_days' => $previousTotalDays,
+                'new_total_days' => $newTotalDays,
+                'previous_subtotal' => $previousSubtotal,
+                'new_subtotal' => $newSubtotal,
+                'extension_payment_amount' => $extensionPaymentAmount,
+                'notes' => $validated['payment_notes'] ?? null,
+            ]);
+
             $this->resetScheduledReminders($lockedRental);
 
             return $lockedRental->fresh([
@@ -106,6 +124,7 @@ class RentalExtensionService
                 'items.inventoryUnit.product',
                 'payments.receiver',
                 'payments.paymentMethodConfig',
+                'latestExtension',
             ]);
         });
     }

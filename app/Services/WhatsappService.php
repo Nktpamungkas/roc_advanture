@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Http\Controllers\Admin\NotificationSettingController;
 use App\Models\Rental;
+use App\Models\RentalExtension;
 use App\Models\WaLog;
 use App\Support\Rental\RentalStatuses;
 use Carbon\CarbonInterface;
@@ -23,15 +24,19 @@ class WhatsappService
 
     public function sendRentalInvoice(Rental $rental): WaLog
     {
-        $rental->loadMissing(['customer', 'creator', 'items.inventoryUnit']);
+        $rental->loadMissing(['customer', 'creator', 'items.inventoryUnit', 'latestExtension']);
 
         $phone = $this->resolveRentalPhone($rental);
-        $message = $this->buildRentalInvoiceMessage($rental);
+        $latestExtension = $rental->latestExtension;
+        $messageType = $latestExtension !== null ? 'rental_extension_invoice_manual' : 'rental_invoice_manual';
+        $message = $latestExtension !== null
+            ? $this->buildRentalExtensionInvoiceMessage($rental, $latestExtension)
+            : $this->buildRentalInvoiceMessage($rental);
 
         return $this->dispatchMessage(
             rental: $rental,
             phone: $phone,
-            messageType: 'rental_invoice_manual',
+            messageType: $messageType,
             message: $message,
             scheduledAt: now(),
         );
@@ -92,11 +97,11 @@ class WhatsappService
                     continue;
                 }
 
-                $alreadySent = WaLog::query()
-                    ->where('rental_id', $rental->id)
-                    ->where('message_type', 'rental_due_reminder')
-                    ->whereIn('status', ['pending', 'sent'])
-                    ->exists();
+                $alreadySent = $this->hasExistingReminderLogForSchedule(
+                    rentalId: $rental->id,
+                    messageType: 'rental_due_reminder',
+                    scheduledAt: $triggerAt,
+                );
 
                 if ($alreadySent) {
                     $this->logReminderSkipped('rental_due_reminder', $rental, 'already_sent', $now, [
@@ -152,11 +157,11 @@ class WhatsappService
                     continue;
                 }
 
-                $alreadySent = WaLog::query()
-                    ->where('rental_id', $rental->id)
-                    ->where('message_type', 'rental_overdue_reminder')
-                    ->whereIn('status', ['pending', 'sent'])
-                    ->exists();
+                $alreadySent = $this->hasExistingReminderLogForSchedule(
+                    rentalId: $rental->id,
+                    messageType: 'rental_overdue_reminder',
+                    scheduledAt: $triggerAt,
+                );
 
                 if ($alreadySent) {
                     $this->logReminderSkipped('rental_overdue_reminder', $rental, 'already_sent', $now, [
@@ -222,6 +227,50 @@ class WhatsappService
             'Total Sewa: '.$this->formatCurrency($rental->final_subtotal ?? $rental->subtotal),
             'Sudah Dibayar: '.$this->formatCurrency($rental->paid_amount),
             'Sisa Tagihan: '.$this->formatCurrency($rental->remaining_amount),
+            '',
+            'Admin: '.($rental->creator?->name ?? '-'),
+            '',
+            'Roc Advanture',
+            'Jl. Raya Serang Km 16,8. Kp. Desa Talaga Rt 006/002, Cikupa, Tangerang',
+            'Telp: 0887-1711-042',
+        ];
+
+        return implode(PHP_EOL, $lines);
+    }
+
+    public function buildRentalExtensionInvoiceMessage(Rental $rental, RentalExtension $extension): string
+    {
+        $additionalDays = max(0, $extension->new_total_days - $extension->previous_total_days);
+        $additionalCost = max(0, (float) $extension->new_subtotal - (float) $extension->previous_subtotal);
+
+        $lines = [
+            'Invoice Perpanjangan Sewa Roc Advanture',
+            'No Invoice: '.$rental->rental_no,
+            'Penyewa: '.($rental->customer?->name ?? '-'),
+            'Mulai Sewa: '.$this->formatDateTime($rental->starts_at),
+            'Jatuh Tempo Lama: '.$this->formatDateTime($extension->previous_due_at),
+            'Jatuh Tempo Baru: '.$this->formatDateTime($extension->new_due_at),
+            'Tambahan Hari: '.$additionalDays.' hari',
+            'Tambahan Biaya: '.$this->formatCurrency($additionalCost),
+        ];
+
+        if ((float) $extension->extension_payment_amount > 0) {
+            $lines[] = 'Pembayaran Saat Perpanjang: '.$this->formatCurrency($extension->extension_payment_amount);
+        }
+
+        if (filled($rental->guarantee_note)) {
+            $lines[] = 'Jaminan: '.$rental->guarantee_note;
+        }
+
+        $lines = [
+            ...$lines,
+            '',
+            'Item Sewa:',
+            ...$this->buildRentalItemLines($rental),
+            '',
+            'Total Sewa Terbaru: '.$this->formatCurrency($rental->final_subtotal ?? $rental->subtotal),
+            'Sudah Dibayar: '.$this->formatCurrency($rental->paid_amount),
+            'Sisa Tagihan Terbaru: '.$this->formatCurrency($rental->remaining_amount),
             '',
             'Admin: '.($rental->creator?->name ?? '-'),
             '',
@@ -484,6 +533,16 @@ class WhatsappService
         ]);
 
         return trim((string) preg_replace("/\n{3,}/", "\n\n", $message));
+    }
+
+    private function hasExistingReminderLogForSchedule(int $rentalId, string $messageType, CarbonInterface $scheduledAt): bool
+    {
+        return WaLog::query()
+            ->where('rental_id', $rentalId)
+            ->where('message_type', $messageType)
+            ->whereIn('status', ['pending', 'sent'])
+            ->where('scheduled_at', $scheduledAt->format('Y-m-d H:i:s'))
+            ->exists();
     }
 
     private function logReminderSkipped(string $messageType, Rental $rental, string $reason, CarbonInterface $now, array $context = []): void

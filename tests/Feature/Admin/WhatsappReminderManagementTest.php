@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\InventoryUnit;
 use App\Models\Product;
 use App\Models\Rental;
+use App\Models\RentalExtension;
 use App\Models\User;
 use App\Models\WaLog;
 use App\Support\Access\RoleNames;
@@ -105,6 +106,79 @@ class WhatsappReminderManagementTest extends TestCase
             'message_type' => 'rental_invoice_manual',
             'status' => 'sent',
             'provider_message_id' => 'fonnte-array-001',
+        ]);
+    }
+
+    public function test_admin_can_send_rental_extension_invoice_via_whatsapp(): void
+    {
+        Http::fake([
+            'https://api.fonnte.com/send' => Http::response([
+                'status' => true,
+                'id' => 'fonnte-extension-001',
+            ], 200),
+        ]);
+
+        [$admin, $rental] = $this->createActiveRental([
+            'subtotal' => 100000,
+            'paid_amount' => 40000,
+            'remaining_amount' => 60000,
+        ]);
+
+        $rental->update([
+            'due_at' => '2026-03-11 18:00:00',
+            'total_days' => 2,
+            'subtotal' => 100000,
+            'paid_amount' => 50000,
+            'remaining_amount' => 50000,
+            'guarantee_note' => 'SIM C',
+        ]);
+
+        RentalExtension::query()->create([
+            'rental_id' => $rental->id,
+            'extended_by' => $admin->id,
+            'previous_due_at' => '2026-03-10 18:00:00',
+            'new_due_at' => '2026-03-11 18:00:00',
+            'previous_total_days' => 1,
+            'new_total_days' => 2,
+            'previous_subtotal' => 50000,
+            'new_subtotal' => 100000,
+            'extension_payment_amount' => 10000,
+            'notes' => 'Tambah 1 hari.',
+        ]);
+
+        $rental->items()->update([
+            'days' => 2,
+            'line_total' => 100000,
+        ]);
+
+        $response = $this->actingAs($admin)->post(route('admin.rentals.send-invoice-whatsapp', $rental));
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+        $response->assertSessionHas('success', 'Invoice perpanjangan berhasil dikirim ke WhatsApp customer.');
+
+        Http::assertSentCount(1);
+        Http::assertSent(function ($request) {
+            $message = (string) $request['message'];
+
+            return $request->url() === 'https://api.fonnte.com/send'
+                && $request->hasHeader('Authorization', 'testing-token')
+                && $request->isForm()
+                && $request['target'] === '6281234567890'
+                && str_contains($message, 'Invoice Perpanjangan Sewa Roc Advanture')
+                && str_contains($message, 'Jatuh Tempo Lama: 10 Mar 2026 18:00')
+                && str_contains($message, 'Jatuh Tempo Baru: 11 Mar 2026 18:00')
+                && str_contains($message, 'Tambahan Hari: 1 hari')
+                && str_contains($message, 'Tambahan Biaya: Rp50.000')
+                && str_contains($message, 'Pembayaran Saat Perpanjang: Rp10.000')
+                && str_contains($message, 'Jaminan: SIM C');
+        });
+
+        $this->assertDatabaseHas('wa_logs', [
+            'rental_id' => $rental->id,
+            'phone' => '6281234567890',
+            'message_type' => 'rental_extension_invoice_manual',
+            'status' => 'sent',
+            'provider_message_id' => 'fonnte-extension-001',
         ]);
     }
 

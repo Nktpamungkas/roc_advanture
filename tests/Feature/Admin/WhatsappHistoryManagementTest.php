@@ -239,6 +239,42 @@ class WhatsappHistoryManagementTest extends TestCase
                 ->where('invoices.0.rental_no', 'ROC-RENT-20260330-0002'));
     }
 
+    public function test_whatsapp_history_page_labels_extension_invoice_logs(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        $rental = $this->createRental($admin, [
+            'rental_no' => 'ROC-RENT-20260403-0011',
+        ], [
+            'name' => 'Dika',
+            'phone_whatsapp' => '081300000000',
+        ]);
+
+        WaLog::query()->create([
+            'rental_id' => $rental->id,
+            'phone' => '6281300000000',
+            'message_type' => 'rental_extension_invoice_manual',
+            'scheduled_at' => '2026-04-03 20:45:00',
+            'sent_at' => '2026-04-03 20:45:10',
+            'status' => 'sent',
+            'provider_message_id' => 'fonnte-extension-009',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.whatsapp-history.index', [
+                'tab' => 'invoices',
+                'invoice_search' => 'ROC-RENT-20260403-0011',
+                'invoice_status' => 'all',
+                'invoice_per_page' => 10,
+            ]))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/whatsapp-history/index')
+                ->where('invoiceSummary.total', 1)
+                ->has('invoices', 1)
+                ->where('invoices.0.message_type', 'rental_extension_invoice_manual')
+                ->where('invoices.0.message_type_label', 'Invoice Perpanjangan via WhatsApp'));
+    }
+
     private function createRental(User $admin, array $rentalAttributes = [], array $customerAttributes = []): Rental
     {
         $customer = Customer::query()->create(array_merge([

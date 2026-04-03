@@ -8,5 +8,7 @@ final class PaymentKinds
 
     public const SETTLEMENT = 'settlement';
 
+    public const LATE_FEE = 'late_fee';
+
     public const COMPENSATION = 'compensation';
 }

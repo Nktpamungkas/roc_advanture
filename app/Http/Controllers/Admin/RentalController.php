@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Admin\CancelRentalRequest;
 use App\Http\Requests\Admin\ExtendRentalRequest;
 use App\Http\Requests\Admin\StoreRentalRequest;
+use App\Http\Requests\Admin\UpdateRentalRequest;
 use App\Models\Customer;
 use App\Models\InventoryUnit;
 use App\Models\PaymentMethodConfig;
@@ -12,8 +14,10 @@ use App\Models\Rental;
 use App\Models\SeasonRule;
 use App\Services\AdminAccessService;
 use App\Services\CustomerRatingService;
+use App\Services\RentalCancellationService;
 use App\Services\RentalCreationService;
 use App\Services\RentalExtensionService;
+use App\Services\RentalUpdateService;
 use App\Services\WhatsappService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentMethods;
@@ -30,6 +34,8 @@ class RentalController extends Controller
         private readonly AdminAccessService $adminAccessService,
         private readonly CustomerRatingService $customerRatingService,
         private readonly RentalCreationService $rentalCreationService,
+        private readonly RentalUpdateService $rentalUpdateService,
+        private readonly RentalCancellationService $rentalCancellationService,
         private readonly RentalExtensionService $rentalExtensionService,
         private readonly WhatsappService $whatsappService,
     ) {}
@@ -177,6 +183,107 @@ class RentalController extends Controller
         return to_route('admin.rentals.show', $rental)->with('success', 'Transaksi penyewaan berhasil dibuat.');
     }
 
+    public function edit(Rental $rental): Response
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+        abort_unless(in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true), 404);
+
+        $rental->load(['customer', 'items.inventoryUnit.product', 'paymentMethodConfig']);
+
+        $currentUnitIds = $rental->items->pluck('inventory_unit_id')->filter()->values();
+
+        $availableUnits = InventoryUnit::query()
+            ->with('product:id,name,daily_rate,active')
+            ->where(function ($query) use ($currentUnitIds): void {
+                $query
+                    ->whereIn('status', [
+                        InventoryUnitStatuses::READY_CLEAN,
+                        InventoryUnitStatuses::READY_UNCLEAN,
+                    ])
+                    ->orWhereIn('id', $currentUnitIds);
+            })
+            ->orderBy('unit_code')
+            ->get()
+            ->map(fn (InventoryUnit $inventoryUnit) => [
+                'id' => $inventoryUnit->id,
+                'product_id' => $inventoryUnit->product_id,
+                'product_name' => $inventoryUnit->product?->name,
+                'unit_code' => $inventoryUnit->unit_code,
+                'status' => $inventoryUnit->status,
+                'status_label' => InventoryUnitStatuses::label($inventoryUnit->status),
+                'daily_rate' => (string) ($inventoryUnit->product?->daily_rate ?? 0),
+                'notes' => $inventoryUnit->notes,
+            ])
+            ->values();
+
+        $customersCollection = Customer::query()->orderBy('name')->get()->values();
+        $customerRatings = $this->customerRatingService->summarizeMany($customersCollection);
+        $customers = $customersCollection
+            ->map(fn (Customer $customer) => [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'phone_whatsapp' => $customer->phone_whatsapp,
+                'address' => $customer->address,
+                'rating' => $customerRatings[$customer->id] ?? null,
+            ])
+            ->values();
+
+        $seasonRules = SeasonRule::query()
+            ->where('active', true)
+            ->orderBy('start_date')
+            ->get()
+            ->map(fn (SeasonRule $seasonRule) => [
+                'id' => $seasonRule->id,
+                'name' => $seasonRule->name,
+                'start_date' => $seasonRule->start_date?->toDateString(),
+                'end_date' => $seasonRule->end_date?->toDateString(),
+                'dp_required' => (bool) $seasonRule->dp_required,
+                'dp_type' => $seasonRule->dp_type,
+                'dp_value' => $seasonRule->dp_value !== null ? (string) $seasonRule->dp_value : null,
+                'notes' => $seasonRule->notes,
+            ])
+            ->values();
+
+        return Inertia::render('admin/rentals/edit', [
+            'rental' => [
+                'id' => $rental->id,
+                'rental_no' => $rental->rental_no,
+                'customer_id' => $rental->customer_id ? (string) $rental->customer_id : '',
+                'customer_name' => $rental->customer?->name ?? '',
+                'customer_phone_whatsapp' => $rental->customer?->phone_whatsapp ?? '',
+                'customer_address' => $rental->customer?->address ?? '',
+                'guarantee_note' => $rental->guarantee_note ?? '',
+                'starts_at' => $rental->starts_at?->format('Y-m-d\TH:i'),
+                'due_at' => $rental->due_at?->format('Y-m-d\TH:i'),
+                'rental_days' => (string) $rental->total_days,
+                'inventory_unit_ids' => $currentUnitIds->map(fn ($id) => (int) $id)->all(),
+                'payment_method_config_id' => $rental->payment_method_config_id ? (string) $rental->payment_method_config_id : '',
+                'dp_override_reason' => $rental->dp_override_reason ?? '',
+                'notes' => $rental->notes ?? '',
+                'paid_amount' => (string) $rental->paid_amount,
+                'remaining_amount' => (string) $rental->remaining_amount,
+                'payment_status_label' => RentalPaymentStatuses::label($rental->payment_status),
+            ],
+            'customers' => $customers,
+            'availableUnits' => $availableUnits,
+            'seasonRules' => $seasonRules,
+            'paymentMethodOptions' => $this->activePaymentMethodOptions(),
+        ]);
+    }
+
+    public function update(UpdateRentalRequest $request, Rental $rental): RedirectResponse
+    {
+        $actor = $request->user();
+
+        abort_unless($actor !== null, 403);
+
+        $rental = $this->rentalUpdateService->update($actor, $rental, $request->validated());
+
+        return to_route('admin.rentals.show', $rental)->with('success', 'Perubahan transaksi rental berhasil disimpan.');
+    }
+
     public function extendForm(Rental $rental): Response
     {
         $actor = auth()->user();
@@ -236,6 +343,51 @@ class RentalController extends Controller
         return to_route('admin.rentals.show', $rental)->with('success', 'Perpanjangan sewa berhasil disimpan.');
     }
 
+    public function cancelForm(Rental $rental): Response
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+        abort_unless(in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true), 404);
+
+        $rental->load(['customer', 'items.inventoryUnit']);
+
+        return Inertia::render('admin/rentals/cancel', [
+            'rental' => [
+                'id' => $rental->id,
+                'rental_no' => $rental->rental_no,
+                'starts_at' => $rental->starts_at?->toIso8601String(),
+                'due_at' => $rental->due_at?->toIso8601String(),
+                'subtotal' => (string) $rental->subtotal,
+                'paid_amount' => (string) $rental->paid_amount,
+                'remaining_amount' => (string) $rental->remaining_amount,
+                'rental_status_label' => RentalStatuses::label($rental->rental_status),
+                'customer' => [
+                    'name' => $rental->customer?->name,
+                    'phone_whatsapp' => $rental->customer?->phone_whatsapp,
+                ],
+                'items' => $rental->items
+                    ->map(fn ($item) => [
+                        'id' => $item->id,
+                        'product_name_snapshot' => $item->product_name_snapshot,
+                        'inventory_unit_code' => $item->inventoryUnit?->unit_code,
+                    ])
+                    ->values(),
+            ],
+        ]);
+    }
+
+    public function cancel(CancelRentalRequest $request, Rental $rental): RedirectResponse
+    {
+        $actor = $request->user();
+
+        abort_unless($actor !== null, 403);
+
+        $rental = $this->rentalCancellationService->cancel($actor, $rental, $request->validated());
+
+        return to_route('admin.rentals.show', $rental)->with('success', 'Transaksi rental berhasil dibatalkan.');
+    }
+
     public function show(Rental $rental): Response
     {
         $actor = auth()->user();
@@ -248,6 +400,7 @@ class RentalController extends Controller
             'creator',
             'items.inventoryUnit.product',
             'payments.receiver',
+            'latestExtension',
         ]);
 
         return Inertia::render('admin/rentals/show', [
@@ -270,9 +423,13 @@ class RentalController extends Controller
                 'settlement_basis' => $rental->settlement_basis,
                 'rental_status' => $rental->rental_status,
                 'rental_status_label' => RentalStatuses::label($rental->rental_status),
+                'cancel_reason' => $rental->cancel_reason,
                 'guarantee_note' => $rental->guarantee_note,
                 'notes' => $rental->notes,
                 'can_extend' => in_array($rental->rental_status, [RentalStatuses::PICKED_UP, RentalStatuses::LATE], true),
+                'can_edit' => in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true),
+                'can_cancel' => in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true),
+                'has_extensions' => $rental->latestExtension !== null,
                 'payment_method' => [
                     'name' => $rental->payment_method_name_snapshot,
                     'type' => $rental->payment_method_type_snapshot,
@@ -331,9 +488,13 @@ class RentalController extends Controller
         abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
 
         try {
-            $this->whatsappService->sendRentalInvoice($rental);
+            $waLog = $this->whatsappService->sendRentalInvoice($rental);
 
-            return to_route('admin.rentals.show', $rental)->with('success', 'Invoice berhasil dikirim ke WhatsApp customer.');
+            $successMessage = $waLog->message_type === 'rental_extension_invoice_manual'
+                ? 'Invoice perpanjangan berhasil dikirim ke WhatsApp customer.'
+                : 'Invoice berhasil dikirim ke WhatsApp customer.';
+
+            return to_route('admin.rentals.show', $rental)->with('success', $successMessage);
         } catch (\Throwable $exception) {
             return to_route('admin.rentals.show', $rental)->with('error', $exception->getMessage());
         }

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { type SharedData } from '@/types';
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, LoaderCircle, Printer, Send } from 'lucide-react';
+import { ArrowLeft, Ban, CalendarClock, FilePenLine, LoaderCircle, Printer, Send } from 'lucide-react';
 
 interface RentalReceipt {
     id: number;
@@ -20,6 +20,11 @@ interface RentalReceipt {
     guarantee_note: string | null;
     dp_override_reason: string | null;
     notes: string | null;
+    can_extend: boolean;
+    can_edit: boolean;
+    can_cancel: boolean;
+    has_extensions: boolean;
+    cancel_reason: string | null;
     payment_method: {
         name: string | null;
         type: string | null;
@@ -96,7 +101,9 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
         amount: formatCurrency(payment.amount),
         detail: `${formatDate(payment.paid_at)} ${formatTime(payment.paid_at)} | ${payment.method_label} | ${payment.receiver_name ?? '-'}`,
     }));
-    const notesRows = [rental.notes, ...paymentNotes].filter((note): note is string => Boolean(note && note.trim()));
+    const notesRows = [rental.cancel_reason ? `Alasan batal: ${rental.cancel_reason}` : null, rental.notes, ...paymentNotes].filter(
+        (note): note is string => Boolean(note && note.trim()),
+    );
     const hasPaymentHistory = paymentRows.length > 0;
     const hasNotesSection = notesRows.length > 0;
     const hasPaymentMethodSection = Boolean(rental.payment_method.name);
@@ -104,6 +111,7 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
     const displayedSubtotal = rental.final_subtotal ?? rental.subtotal;
     const displayedDays = rental.final_total_days ?? rental.total_days;
     const canSendWhatsappInvoice = Boolean(rental.customer.phone_whatsapp && rental.customer.phone_whatsapp.trim());
+    const whatsappInvoiceButtonLabel = rental.has_extensions ? 'Kirim Invoice Perpanjangan via WA' : 'Kirim Invoice via WA';
 
     const sendInvoiceWhatsapp = () => {
         sendInvoiceForm.post(route('admin.rentals.send-invoice-whatsapp', rental.id), {
@@ -126,9 +134,36 @@ export default function RentalReceiptPage({ rental }: { rental: RentalReceipt })
                         </Button>
 
                         <div className="flex flex-wrap items-center gap-2">
+                            {rental.can_edit && (
+                                <Button asChild variant="outline">
+                                    <Link href={route('admin.rentals.edit', rental.id)}>
+                                        <FilePenLine className="h-4 w-4" />
+                                        Edit Transaksi
+                                    </Link>
+                                </Button>
+                            )}
+
+                            {rental.can_extend && (
+                                <Button asChild variant="outline">
+                                    <Link href={route('admin.rentals.extend.edit', rental.id)}>
+                                        <CalendarClock className="h-4 w-4" />
+                                        Perpanjang Sewa
+                                    </Link>
+                                </Button>
+                            )}
+
+                            {rental.can_cancel && (
+                                <Button asChild variant="outline">
+                                    <Link href={route('admin.rentals.cancel.edit', rental.id)}>
+                                        <Ban className="h-4 w-4" />
+                                        Batalkan Transaksi
+                                    </Link>
+                                </Button>
+                            )}
+
                             <Button type="button" variant="outline" onClick={sendInvoiceWhatsapp} disabled={sendInvoiceForm.processing || !canSendWhatsappInvoice}>
                                 {sendInvoiceForm.processing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                                Kirim Invoice via WA
+                                {whatsappInvoiceButtonLabel}
                             </Button>
 
                             <Button type="button" onClick={() => window.print()}>

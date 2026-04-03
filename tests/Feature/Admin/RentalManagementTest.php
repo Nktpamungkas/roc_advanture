@@ -9,6 +9,7 @@ use App\Models\Product;
 use App\Models\Rental;
 use App\Models\SeasonRule;
 use App\Models\User;
+use App\Models\WaLog;
 use App\Support\Access\RoleNames;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentKinds;
@@ -346,11 +347,369 @@ class RentalManagementTest extends TestCase
                 ->where('rental.guarantee_note', 'SIM C'));
     }
 
+    public function test_admin_can_open_extend_rental_page(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        $rental = $this->createExtendableRental($admin);
+
+        $this->actingAs($admin)
+            ->get(route('admin.rentals.extend.edit', $rental))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/rentals/extend')
+                ->where('rental.rental_no', $rental->rental_no));
+    }
+
+    public function test_admin_can_open_edit_rental_page(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        ['rental' => $rental] = $this->createEditableRental($admin);
+
+        $this->actingAs($admin)
+            ->get(route('admin.rentals.edit', $rental))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/rentals/edit')
+                ->where('rental.rental_no', $rental->rental_no));
+    }
+
+    public function test_admin_can_update_active_rental_and_sync_units(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'QRIS Toko',
+            'type' => 'qris',
+            'code' => 'qris-toko-edit',
+            'qr_image_path' => '/uploads/payment-methods/qris-edit.png',
+            'active' => true,
+        ]);
+
+        ['rental' => $rental, 'existing_unit' => $existingUnit, 'replacement_unit' => $replacementUnit] = $this->createEditableRental($admin);
+
+        WaLog::query()->create([
+            'rental_id' => $rental->id,
+            'phone' => '6281200000000',
+            'message_type' => 'rental_due_reminder',
+            'scheduled_at' => '2026-04-02 20:00:00',
+            'status' => 'pending',
+        ]);
+
+        $response = $this->actingAs($admin)->put(route('admin.rentals.update', $rental), [
+            'customer_name' => 'Customer Edit',
+            'customer_phone_whatsapp' => '081200000000',
+            'customer_address' => 'Cikupa baru',
+            'guarantee_note' => 'KTP',
+            'starts_at' => '2026-04-05 22:00:00',
+            'due_at' => '2026-04-07 08:00:00',
+            'rental_days' => 2,
+            'inventory_unit_ids' => [$replacementUnit->id],
+            'payment_method_config_id' => $paymentMethod->id,
+            'dp_override_reason' => '',
+            'notes' => 'Unit diganti karena customer ganti ukuran.',
+        ]);
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+
+        $this->assertDatabaseHas('rentals', [
+            'id' => $rental->id,
+            'starts_at' => '2026-04-05 22:00:00',
+            'due_at' => '2026-04-07 08:00:00',
+            'total_days' => 2,
+            'subtotal' => 120000,
+            'paid_amount' => 20000,
+            'remaining_amount' => 100000,
+            'payment_method_config_id' => $paymentMethod->id,
+            'guarantee_note' => 'KTP',
+            'notes' => 'Unit diganti karena customer ganti ukuran.',
+            'rental_status' => RentalStatuses::PICKED_UP,
+        ]);
+
+        $this->assertDatabaseHas('rental_items', [
+            'rental_id' => $rental->id,
+            'inventory_unit_id' => $replacementUnit->id,
+            'days' => 2,
+            'line_total' => 120000,
+            'status_at_checkout' => InventoryUnitStatuses::READY_UNCLEAN,
+        ]);
+
+        $this->assertDatabaseMissing('rental_items', [
+            'rental_id' => $rental->id,
+            'inventory_unit_id' => $existingUnit->id,
+        ]);
+
+        $this->assertDatabaseHas('inventory_units', [
+            'id' => $existingUnit->id,
+            'status' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        $this->assertDatabaseHas('inventory_units', [
+            'id' => $replacementUnit->id,
+            'status' => InventoryUnitStatuses::RENTED,
+        ]);
+
+        $this->assertDatabaseMissing('wa_logs', [
+            'rental_id' => $rental->id,
+            'message_type' => 'rental_due_reminder',
+            'status' => 'pending',
+        ]);
+    }
+
+    public function test_admin_can_extend_active_rental_and_update_totals(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        $paymentMethod = PaymentMethodConfig::query()->create([
+            'name' => 'Transfer BCA',
+            'type' => 'transfer',
+            'code' => 'bca-transfer',
+            'bank_name' => 'BCA',
+            'account_number' => '1234567890',
+            'account_name' => 'Roc Advanture',
+            'active' => true,
+        ]);
+
+        $rental = $this->createExtendableRental($admin, 20000);
+
+        $response = $this->actingAs($admin)->put(route('admin.rentals.extend.update', $rental), [
+            'due_at' => '2026-04-03 22:00:00',
+            'extension_payment_amount' => 30000,
+            'payment_method_config_id' => $paymentMethod->id,
+            'payment_notes' => 'Customer tambah 1 hari dan bayar sebagian.',
+        ]);
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+
+        $this->assertDatabaseHas('rentals', [
+            'id' => $rental->id,
+            'due_at' => '2026-04-03 22:00:00',
+            'total_days' => 2,
+            'subtotal' => 100000,
+            'paid_amount' => 50000,
+            'remaining_amount' => 50000,
+            'payment_status' => RentalPaymentStatuses::DP_PAID,
+            'rental_status' => RentalStatuses::PICKED_UP,
+        ]);
+
+        $this->assertDatabaseHas('rental_items', [
+            'rental_id' => $rental->id,
+            'days' => 2,
+            'line_total' => 100000,
+        ]);
+
+        $this->assertDatabaseHas('payments', [
+            'rental_id' => $rental->id,
+            'received_by' => $admin->id,
+            'payment_method_config_id' => $paymentMethod->id,
+            'payment_kind' => PaymentKinds::SETTLEMENT,
+            'amount' => 30000,
+            'method' => 'transfer',
+            'notes' => 'Customer tambah 1 hari dan bayar sebagian.',
+        ]);
+    }
+
+    public function test_admin_can_open_cancel_rental_page(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        ['rental' => $rental] = $this->createEditableRental($admin);
+
+        $this->actingAs($admin)
+            ->get(route('admin.rentals.cancel.edit', $rental))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/rentals/cancel')
+                ->where('rental.rental_no', $rental->rental_no));
+    }
+
+    public function test_admin_can_cancel_active_rental_and_restore_unit_statuses(): void
+    {
+        $admin = $this->createUserWithRole(RoleNames::ADMIN_TOKO);
+        ['rental' => $rental, 'existing_unit' => $existingUnit] = $this->createEditableRental($admin);
+
+        WaLog::query()->create([
+            'rental_id' => $rental->id,
+            'phone' => '6281200000000',
+            'message_type' => 'rental_due_reminder',
+            'scheduled_at' => '2026-04-02 20:00:00',
+            'status' => 'pending',
+        ]);
+
+        WaLog::query()->create([
+            'rental_id' => $rental->id,
+            'phone' => '6281200000000',
+            'message_type' => 'rental_invoice_manual',
+            'scheduled_at' => '2026-04-01 22:00:00',
+            'status' => 'sent',
+        ]);
+
+        $response = $this->actingAs($admin)->put(route('admin.rentals.cancel.update', $rental), [
+            'cancel_reason' => 'Customer batal berangkat.',
+        ]);
+
+        $response->assertRedirect(route('admin.rentals.show', $rental));
+
+        $this->assertDatabaseHas('rentals', [
+            'id' => $rental->id,
+            'rental_status' => RentalStatuses::CANCELLED,
+            'cancel_reason' => 'Customer batal berangkat.',
+        ]);
+
+        $this->assertDatabaseHas('inventory_units', [
+            'id' => $existingUnit->id,
+            'status' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        $this->assertDatabaseMissing('wa_logs', [
+            'rental_id' => $rental->id,
+            'message_type' => 'rental_due_reminder',
+            'status' => 'pending',
+        ]);
+
+        $this->assertDatabaseHas('wa_logs', [
+            'rental_id' => $rental->id,
+            'message_type' => 'rental_invoice_manual',
+            'status' => 'sent',
+        ]);
+    }
+
     private function createUserWithRole(string $role, array $attributes = []): User
     {
         $user = User::factory()->create($attributes);
         $user->assignRole($role);
 
         return $user;
+    }
+
+    private function createExtendableRental(User $admin, int $paidAmount = 0): Rental
+    {
+        $customer = Customer::query()->create([
+            'name' => 'Customer Extend',
+            'phone_whatsapp' => '081200000000',
+            'address' => 'Cikupa',
+        ]);
+
+        $product = Product::query()->create([
+            'name' => 'Carrier 50L',
+            'category' => 'Carrier',
+            'prefix_code' => 'CAR50',
+            'daily_rate' => 50000,
+            'active' => true,
+        ]);
+
+        $unit = InventoryUnit::query()->create([
+            'product_id' => $product->id,
+            'unit_code' => 'CAR50-001',
+            'status' => InventoryUnitStatuses::RENTED,
+        ]);
+
+        $rental = Rental::query()->create([
+            'rental_no' => 'ROC-RENT-20260401-0001',
+            'customer_id' => $customer->id,
+            'created_by' => $admin->id,
+            'starts_at' => '2026-04-01 22:00:00',
+            'due_at' => '2026-04-02 22:00:00',
+            'total_days' => 1,
+            'dp_required' => false,
+            'subtotal' => 50000,
+            'dp_amount' => 0,
+            'paid_amount' => $paidAmount,
+            'remaining_amount' => 50000 - $paidAmount,
+            'payment_status' => $paidAmount > 0 ? RentalPaymentStatuses::DP_PAID : RentalPaymentStatuses::UNPAID,
+            'rental_status' => RentalStatuses::PICKED_UP,
+        ]);
+
+        $rental->items()->create([
+            'inventory_unit_id' => $unit->id,
+            'product_name_snapshot' => 'Carrier 50L',
+            'daily_rate_snapshot' => 50000,
+            'days' => 1,
+            'line_total' => 50000,
+            'status_at_checkout' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        if ($paidAmount > 0) {
+            $rental->payments()->create([
+                'received_by' => $admin->id,
+                'payment_kind' => PaymentKinds::DP,
+                'amount' => $paidAmount,
+                'paid_at' => '2026-04-01 22:00:00',
+                'method' => 'cash',
+                'method_label_snapshot' => 'Tunai',
+                'method_type_snapshot' => 'cash',
+            ]);
+        }
+
+        return $rental;
+    }
+
+    /**
+     * @return array{rental: Rental, existing_unit: InventoryUnit, replacement_unit: InventoryUnit}
+     */
+    private function createEditableRental(User $admin): array
+    {
+        $customer = Customer::query()->create([
+            'name' => 'Customer Edit',
+            'phone_whatsapp' => '081200000000',
+            'address' => 'Cikupa',
+        ]);
+
+        $product = Product::query()->create([
+            'name' => 'Carrier 60L',
+            'category' => 'Carrier',
+            'prefix_code' => 'CAR60',
+            'daily_rate' => 60000,
+            'active' => true,
+        ]);
+
+        $existingUnit = InventoryUnit::query()->create([
+            'product_id' => $product->id,
+            'unit_code' => 'CAR60-001',
+            'status' => InventoryUnitStatuses::RENTED,
+        ]);
+
+        $replacementUnit = InventoryUnit::query()->create([
+            'product_id' => $product->id,
+            'unit_code' => 'CAR60-002',
+            'status' => InventoryUnitStatuses::READY_UNCLEAN,
+        ]);
+
+        $rental = Rental::query()->create([
+            'rental_no' => 'ROC-RENT-20260401-0033',
+            'customer_id' => $customer->id,
+            'created_by' => $admin->id,
+            'starts_at' => '2026-04-01 22:00:00',
+            'due_at' => '2026-04-02 22:00:00',
+            'total_days' => 1,
+            'dp_required' => false,
+            'subtotal' => 60000,
+            'dp_amount' => 0,
+            'paid_amount' => 20000,
+            'remaining_amount' => 40000,
+            'payment_status' => RentalPaymentStatuses::DP_PAID,
+            'rental_status' => RentalStatuses::PICKED_UP,
+        ]);
+
+        $rental->items()->create([
+            'inventory_unit_id' => $existingUnit->id,
+            'product_name_snapshot' => 'Carrier 60L',
+            'daily_rate_snapshot' => 60000,
+            'days' => 1,
+            'line_total' => 60000,
+            'status_at_checkout' => InventoryUnitStatuses::READY_CLEAN,
+        ]);
+
+        $rental->payments()->create([
+            'received_by' => $admin->id,
+            'payment_kind' => PaymentKinds::DP,
+            'amount' => 20000,
+            'paid_at' => '2026-04-01 22:00:00',
+            'method' => 'cash',
+            'method_label_snapshot' => 'Tunai',
+            'method_type_snapshot' => 'cash',
+        ]);
+
+        return [
+            'rental' => $rental,
+            'existing_unit' => $existingUnit,
+            'replacement_unit' => $replacementUnit,
+        ];
     }
 }
