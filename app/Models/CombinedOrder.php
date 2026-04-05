@@ -7,21 +7,24 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-class Sale extends Model
+class CombinedOrder extends Model
 {
     use HasFactory;
 
     protected $fillable = [
-        'sale_no',
-        'sold_at',
-        'sold_by',
-        'combined_order_id',
+        'combined_no',
+        'ordered_at',
+        'created_by',
         'customer_name',
         'customer_phone',
+        'payment_method_config_id',
+        'rental_total',
+        'sale_total',
         'subtotal',
         'discount_amount',
-        'total_amount',
-        'payment_method_config_id',
+        'paid_amount',
+        'remaining_amount',
+        'payment_status',
         'payment_method_name_snapshot',
         'payment_method_type_snapshot',
         'payment_qr_image_path_snapshot',
@@ -35,21 +38,19 @@ class Sale extends Model
     protected function casts(): array
     {
         return [
-            'sold_at' => 'datetime',
+            'ordered_at' => 'datetime',
+            'rental_total' => 'decimal:2',
+            'sale_total' => 'decimal:2',
             'subtotal' => 'decimal:2',
             'discount_amount' => 'decimal:2',
-            'total_amount' => 'decimal:2',
+            'paid_amount' => 'decimal:2',
+            'remaining_amount' => 'decimal:2',
         ];
     }
 
-    public function soldBy(): BelongsTo
+    public function creator(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'sold_by');
-    }
-
-    public function combinedOrder(): BelongsTo
-    {
-        return $this->belongsTo(CombinedOrder::class);
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     public function paymentMethodConfig(): BelongsTo
@@ -57,8 +58,13 @@ class Sale extends Model
         return $this->belongsTo(PaymentMethodConfig::class);
     }
 
-    public function items(): HasMany
+    public function rentals(): HasMany
     {
-        return $this->hasMany(SaleItem::class);
+        return $this->hasMany(Rental::class);
+    }
+
+    public function sales(): HasMany
+    {
+        return $this->hasMany(Sale::class);
     }
 }

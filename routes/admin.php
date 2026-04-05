@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Admin\CustomerController;
+use App\Http\Controllers\Admin\CombinedOrderController;
+use App\Http\Controllers\Admin\CombinedReportController;
 use App\Http\Controllers\Admin\InventoryUnitController;
 use App\Http\Controllers\Admin\NotificationSettingController;
 use App\Http\Controllers\Admin\PaymentMethodConfigController;
@@ -55,6 +57,9 @@ Route::middleware(['auth'])
 
         Route::get('rentals', [RentalController::class, 'index'])->name('rentals.index');
         Route::post('rentals', [RentalController::class, 'store'])->name('rentals.store');
+        Route::get('combined-orders', [CombinedOrderController::class, 'index'])->name('combined-orders.index');
+        Route::post('combined-orders', [CombinedOrderController::class, 'store'])->name('combined-orders.store');
+        Route::get('combined-orders/{combinedOrder}', [CombinedOrderController::class, 'show'])->name('combined-orders.show');
         Route::get('rentals/{rental}/edit', [RentalController::class, 'edit'])->name('rentals.edit');
         Route::put('rentals/{rental}', [RentalController::class, 'update'])->name('rentals.update');
         Route::get('rentals/{rental}/extend', [RentalController::class, 'extendForm'])->name('rentals.extend.edit');
@@ -73,7 +78,9 @@ Route::middleware(['auth'])
         Route::get('sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
         Route::get('returns', [RentalReturnController::class, 'index'])->name('returns.index');
         Route::post('returns', [RentalReturnController::class, 'store'])->name('returns.store');
-        Route::get('reports', fn () => to_route('admin.rental-reports.index'))->name('reports.index');
+        Route::get('reports', fn () => to_route('admin.combined-reports.index'))->name('reports.index');
+        Route::get('reports/combined', [CombinedReportController::class, 'index'])->name('combined-reports.index');
+        Route::get('reports/combined/export', [CombinedReportController::class, 'export'])->name('combined-reports.export');
         Route::get('reports/rentals', [RentalReportController::class, 'index'])->name('rental-reports.index');
         Route::get('reports/rentals/export/{report}', [RentalReportController::class, 'export'])->name('rental-reports.export');
         Route::get('reports/sales', [SalesReportController::class, 'index'])->name('sales-reports.index');

@@ -16,6 +16,7 @@ class Rental extends Model
         'rental_no',
         'customer_id',
         'season_rule_id',
+        'combined_order_id',
         'payment_method_config_id',
         'payment_method_name_snapshot',
         'payment_method_type_snapshot',
@@ -66,6 +67,11 @@ class Rental extends Model
     public function seasonRule(): BelongsTo
     {
         return $this->belongsTo(SeasonRule::class);
+    }
+
+    public function combinedOrder(): BelongsTo
+    {
+        return $this->belongsTo(CombinedOrder::class);
     }
 
     public function paymentMethodConfig(): BelongsTo

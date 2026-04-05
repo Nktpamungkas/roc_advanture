@@ -470,7 +470,7 @@ class RentalManagementTest extends TestCase
         $rental = $this->createExtendableRental($admin, 20000);
 
         $response = $this->actingAs($admin)->put(route('admin.rentals.extend.update', $rental), [
-            'due_at' => '2026-04-03 22:00:00',
+            'due_at' => '2026-04-08 22:00:00',
             'extension_payment_amount' => 30000,
             'payment_method_config_id' => $paymentMethod->id,
             'payment_notes' => 'Customer tambah 1 hari dan bayar sebagian.',
@@ -480,7 +480,7 @@ class RentalManagementTest extends TestCase
 
         $this->assertDatabaseHas('rentals', [
             'id' => $rental->id,
-            'due_at' => '2026-04-03 22:00:00',
+            'due_at' => '2026-04-08 22:00:00',
             'total_days' => 2,
             'subtotal' => 100000,
             'paid_amount' => 50000,
@@ -604,8 +604,8 @@ class RentalManagementTest extends TestCase
             'rental_no' => 'ROC-RENT-20260401-0001',
             'customer_id' => $customer->id,
             'created_by' => $admin->id,
-            'starts_at' => '2026-04-01 22:00:00',
-            'due_at' => '2026-04-02 22:00:00',
+            'starts_at' => '2026-04-06 22:00:00',
+            'due_at' => '2026-04-07 22:00:00',
             'total_days' => 1,
             'dp_required' => false,
             'subtotal' => 50000,
@@ -675,8 +675,8 @@ class RentalManagementTest extends TestCase
             'rental_no' => 'ROC-RENT-20260401-0033',
             'customer_id' => $customer->id,
             'created_by' => $admin->id,
-            'starts_at' => '2026-04-01 22:00:00',
-            'due_at' => '2026-04-02 22:00:00',
+            'starts_at' => '2026-04-06 22:00:00',
+            'due_at' => '2026-04-07 22:00:00',
             'total_days' => 1,
             'dp_required' => false,
             'subtotal' => 60000,
