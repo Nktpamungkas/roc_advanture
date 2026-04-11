@@ -2,8 +2,8 @@ import AppLogoIcon from '@/components/app-logo-icon';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { type SharedData } from '@/types';
-import { Head, Link, usePage } from '@inertiajs/react';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
+import { ArrowLeft, FilePenLine, LoaderCircle, Printer, Send } from 'lucide-react';
 
 interface CombinedOrderReceipt {
     id: number;
@@ -19,6 +19,7 @@ interface CombinedOrderReceipt {
     remaining_amount: string;
     payment_status_label: string;
     notes: string | null;
+    can_edit?: boolean;
     payment_method: {
         name: string | null;
         type: string | null;
@@ -92,6 +93,7 @@ const timeFormatter = new Intl.DateTimeFormat('id-ID', {
 
 export default function CombinedOrderShow({ combinedOrder }: { combinedOrder: CombinedOrderReceipt }) {
     const { flash } = usePage<SharedData>().props;
+    const sendInvoiceForm = useForm({});
 
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDate = (value: string | null) => (value ? dateFormatter.format(new Date(value)) : '-');
@@ -107,6 +109,13 @@ export default function CombinedOrderShow({ combinedOrder }: { combinedOrder: Co
 
     const paymentHistory = combinedOrder.rental?.payments ?? [];
     const hasNotesSection = Boolean(combinedOrder.notes && combinedOrder.notes.trim());
+    const canSendWhatsappInvoice = Boolean(combinedOrder.customer_phone && combinedOrder.customer_phone.trim());
+
+    const sendInvoiceWhatsapp = () => {
+        sendInvoiceForm.post(route('admin.combined-orders.send-invoice-whatsapp', combinedOrder.id), {
+            preserveScroll: true,
+        });
+    };
 
     return (
         <>
@@ -122,16 +131,39 @@ export default function CombinedOrderShow({ combinedOrder }: { combinedOrder: Co
                             </Link>
                         </Button>
 
-                        <Button type="button" onClick={() => window.print()}>
-                            <Printer className="h-4 w-4" />
-                            Print Invoice Gabungan
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            {combinedOrder.can_edit && (
+                                <Button asChild variant="outline">
+                                    <Link href={route('admin.combined-orders.edit', combinedOrder.id)}>
+                                        <FilePenLine className="h-4 w-4" />
+                                        Edit Transaksi
+                                    </Link>
+                                </Button>
+                            )}
+
+                            <Button type="button" variant="outline" onClick={sendInvoiceWhatsapp} disabled={sendInvoiceForm.processing || !canSendWhatsappInvoice}>
+                                {sendInvoiceForm.processing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                Kirim Invoice via WA
+                            </Button>
+
+                            <Button type="button" onClick={() => window.print()}>
+                                <Printer className="h-4 w-4" />
+                                Print Invoice Gabungan
+                            </Button>
+                        </div>
                     </div>
 
                     {flash.success && (
                         <Alert className="print:hidden">
                             <AlertTitle>Berhasil</AlertTitle>
                             <AlertDescription>{flash.success}</AlertDescription>
+                        </Alert>
+                    )}
+
+                    {flash.error && (
+                        <Alert className="border-red-200 bg-red-50 text-red-700 print:hidden">
+                            <AlertTitle>Pengiriman WhatsApp gagal</AlertTitle>
+                            <AlertDescription>{flash.error}</AlertDescription>
                         </Alert>
                     )}
 

@@ -59,7 +59,10 @@ Route::middleware(['auth'])
         Route::post('rentals', [RentalController::class, 'store'])->name('rentals.store');
         Route::get('combined-orders', [CombinedOrderController::class, 'index'])->name('combined-orders.index');
         Route::post('combined-orders', [CombinedOrderController::class, 'store'])->name('combined-orders.store');
+        Route::get('combined-orders/{combinedOrder}/edit', [CombinedOrderController::class, 'edit'])->name('combined-orders.edit');
+        Route::put('combined-orders/{combinedOrder}', [CombinedOrderController::class, 'update'])->name('combined-orders.update');
         Route::get('combined-orders/{combinedOrder}', [CombinedOrderController::class, 'show'])->name('combined-orders.show');
+        Route::post('combined-orders/{combinedOrder}/send-invoice-whatsapp', [CombinedOrderController::class, 'sendInvoiceWhatsapp'])->name('combined-orders.send-invoice-whatsapp');
         Route::get('rentals/{rental}/edit', [RentalController::class, 'edit'])->name('rentals.edit');
         Route::put('rentals/{rental}', [RentalController::class, 'update'])->name('rentals.update');
         Route::get('rentals/{rental}/extend', [RentalController::class, 'extendForm'])->name('rentals.extend.edit');

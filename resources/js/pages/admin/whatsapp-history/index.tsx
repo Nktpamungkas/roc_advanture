@@ -36,6 +36,8 @@ interface HistoryItem {
     id: number;
     rental_id: number | null;
     rental_no: string | null;
+    combined_order_id: number | null;
+    combined_no: string | null;
     customer_name: string | null;
     customer_phone: string | null;
     phone: string;
@@ -684,7 +686,7 @@ function HistoryTable({
                                                 <p className="text-muted-foreground mt-1 text-xs">{row.customer_phone || row.phone || '-'}</p>
                                             </td>
                                             <td className="px-4 py-3">
-                                                <p className="font-medium">{row.rental_no || '-'}</p>
+                                                <p className="font-medium">{row.combined_no || row.rental_no || '-'}</p>
                                                 <p className="text-muted-foreground mt-1 text-xs">{row.message_type_label}</p>
                                             </td>
                                             {showTargetPhone && <td className="px-4 py-3">{row.phone || '-'}</td>}
@@ -697,12 +699,18 @@ function HistoryTable({
                                             <td className="px-4 py-3">
                                                 <div className="flex justify-end gap-2">
                                                     {row.rental_id ? (
-                                                        <Button asChild size="sm" variant="outline">
-                                                            <Link href={route('admin.rentals.show', row.rental_id)}>Buka Rental</Link>
-                                                        </Button>
+                                                        row.combined_order_id ? (
+                                                            <Button asChild size="sm" variant="outline">
+                                                                <Link href={route('admin.combined-orders.show', row.combined_order_id)}>Buka Invoice</Link>
+                                                            </Button>
+                                                        ) : (
+                                                            <Button asChild size="sm" variant="outline">
+                                                                <Link href={route('admin.rentals.show', row.rental_id)}>Buka Rental</Link>
+                                                            </Button>
+                                                        )
                                                     ) : (
                                                         <Button size="sm" variant="outline" disabled>
-                                                            Buka Rental
+                                                            Buka Detail
                                                         </Button>
                                                     )}
 

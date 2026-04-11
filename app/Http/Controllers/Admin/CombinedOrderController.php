@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreCombinedOrderRequest;
+use App\Http\Requests\Admin\UpdateCombinedOrderRequest;
 use App\Models\CombinedOrder;
 use App\Models\Customer;
 use App\Models\InventoryUnit;
@@ -12,8 +13,10 @@ use App\Models\Rental;
 use App\Models\SaleProduct;
 use App\Models\SeasonRule;
 use App\Services\AdminAccessService;
+use App\Services\CombinedOrderUpdateService;
 use App\Services\CombinedOrderCreationService;
 use App\Services\CustomerRatingService;
+use App\Services\WhatsappService;
 use App\Support\Rental\InventoryUnitStatuses;
 use App\Support\Rental\PaymentMethods;
 use App\Support\Rental\RentalPaymentStatuses;
@@ -29,6 +32,8 @@ class CombinedOrderController extends Controller
         private readonly AdminAccessService $adminAccessService,
         private readonly CustomerRatingService $customerRatingService,
         private readonly CombinedOrderCreationService $combinedOrderCreationService,
+        private readonly CombinedOrderUpdateService $combinedOrderUpdateService,
+        private readonly WhatsappService $whatsappService,
     ) {
     }
 
@@ -205,6 +210,160 @@ class CombinedOrderController extends Controller
         return to_route('admin.combined-orders.show', $combinedOrder)->with('success', 'Transaksi gabungan berhasil dibuat.');
     }
 
+    public function edit(CombinedOrder $combinedOrder): Response
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        $combinedOrder->load([
+            'rentals.customer',
+            'rentals.returnRecord',
+            'rentals.latestExtension',
+            'rentals.payments',
+            'rentals.items.inventoryUnit.product',
+            'sales.items.saleProduct',
+        ]);
+
+        $rental = $combinedOrder->rentals->first();
+        $sale = $combinedOrder->sales->first();
+
+        abort_unless(
+            $rental !== null
+            && $sale !== null
+            && in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true)
+            && $rental->returnRecord === null
+            && $rental->latestExtension === null
+            && $rental->payments->count() <= 1,
+            404
+        );
+
+        $currentUnitIds = $rental->items->pluck('inventory_unit_id')->filter()->values();
+
+        $availableUnits = InventoryUnit::query()
+            ->with('product:id,name,daily_rate,active')
+            ->where(function ($query) use ($currentUnitIds): void {
+                $query
+                    ->whereIn('status', [
+                        InventoryUnitStatuses::READY_CLEAN,
+                        InventoryUnitStatuses::READY_UNCLEAN,
+                    ])
+                    ->orWhereIn('id', $currentUnitIds);
+            })
+            ->orderBy('unit_code')
+            ->get()
+            ->map(fn (InventoryUnit $inventoryUnit) => [
+                'id' => $inventoryUnit->id,
+                'product_id' => $inventoryUnit->product_id,
+                'product_name' => $inventoryUnit->product?->name,
+                'unit_code' => $inventoryUnit->unit_code,
+                'status' => $inventoryUnit->status,
+                'status_label' => InventoryUnitStatuses::label($inventoryUnit->status),
+                'daily_rate' => (string) ($inventoryUnit->product?->daily_rate ?? 0),
+                'notes' => $inventoryUnit->notes,
+            ])
+            ->values();
+
+        $saleItemsByProduct = $sale->items
+            ->groupBy('sale_product_id')
+            ->map(fn ($items) => (int) $items->sum('qty'));
+
+        $saleProducts = SaleProduct::query()
+            ->where('active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(fn (SaleProduct $saleProduct) => [
+                'id' => $saleProduct->id,
+                'sku' => $saleProduct->sku,
+                'name' => $saleProduct->name,
+                'category' => $saleProduct->category,
+                'selling_price' => (string) $saleProduct->selling_price,
+                'stock_qty' => $saleProduct->stock_qty,
+                'editable_stock_qty' => $saleProduct->stock_qty + (int) ($saleItemsByProduct->get($saleProduct->id) ?? 0),
+                'min_stock_qty' => $saleProduct->min_stock_qty,
+                'is_low_stock' => $saleProduct->stock_qty <= $saleProduct->min_stock_qty,
+                'is_out_of_stock' => ($saleProduct->stock_qty + (int) ($saleItemsByProduct->get($saleProduct->id) ?? 0)) <= 0,
+                'notes' => $saleProduct->notes,
+            ])
+            ->values();
+
+        $customersCollection = Customer::query()
+            ->orderBy('name')
+            ->get()
+            ->values();
+
+        $customerRatings = $this->customerRatingService->summarizeMany($customersCollection);
+
+        $customers = $customersCollection
+            ->map(fn (Customer $customer) => [
+                'id' => $customer->id,
+                'name' => $customer->name,
+                'phone_whatsapp' => $customer->phone_whatsapp,
+                'address' => $customer->address,
+                'rating' => $customerRatings[$customer->id] ?? null,
+            ])
+            ->values();
+
+        $seasonRules = SeasonRule::query()
+            ->where('active', true)
+            ->orderBy('start_date')
+            ->get()
+            ->map(fn (SeasonRule $seasonRule) => [
+                'id' => $seasonRule->id,
+                'name' => $seasonRule->name,
+                'start_date' => $seasonRule->start_date?->toDateString(),
+                'end_date' => $seasonRule->end_date?->toDateString(),
+                'dp_required' => (bool) $seasonRule->dp_required,
+                'dp_type' => $seasonRule->dp_type,
+                'dp_value' => $seasonRule->dp_value !== null ? (string) $seasonRule->dp_value : null,
+            ])
+            ->values();
+
+        return Inertia::render('admin/combined-orders/edit', [
+            'combinedOrder' => [
+                'id' => $combinedOrder->id,
+                'combined_no' => $combinedOrder->combined_no,
+                'customer_id' => $rental->customer_id ? (string) $rental->customer_id : '',
+                'customer_name' => $rental->customer?->name ?? $combinedOrder->customer_name ?? '',
+                'customer_phone_whatsapp' => $rental->customer?->phone_whatsapp ?? $combinedOrder->customer_phone ?? '',
+                'customer_address' => $rental->customer?->address ?? '',
+                'guarantee_note' => $rental->guarantee_note ?? '',
+                'starts_at' => $rental->starts_at?->format('Y-m-d\TH:i'),
+                'due_at' => $rental->due_at?->format('Y-m-d\TH:i'),
+                'rental_days' => (string) $rental->total_days,
+                'inventory_unit_ids' => $currentUnitIds->map(fn ($id) => (int) $id)->all(),
+                'sale_items' => $sale->items
+                    ->groupBy('sale_product_id')
+                    ->map(fn ($items, $productId) => [
+                        'sale_product_id' => (int) $productId,
+                        'qty' => (string) $items->sum('qty'),
+                    ])
+                    ->values()
+                    ->all(),
+                'paid_amount' => (string) $combinedOrder->paid_amount,
+                'payment_method_config_id' => $combinedOrder->payment_method_config_id ? (string) $combinedOrder->payment_method_config_id : '',
+                'dp_override_reason' => $rental->dp_override_reason ?? '',
+                'notes' => $combinedOrder->notes ?? '',
+            ],
+            'customers' => $customers,
+            'availableUnits' => $availableUnits,
+            'saleProducts' => $saleProducts,
+            'seasonRules' => $seasonRules,
+            'paymentMethodOptions' => $this->activePaymentMethodOptions(),
+        ]);
+    }
+
+    public function update(UpdateCombinedOrderRequest $request, CombinedOrder $combinedOrder): RedirectResponse
+    {
+        $actor = $request->user();
+
+        abort_unless($actor !== null, 403);
+
+        $combinedOrder = $this->combinedOrderUpdateService->update($actor, $combinedOrder, $request->validated());
+
+        return to_route('admin.combined-orders.show', $combinedOrder)->with('success', 'Perubahan transaksi gabungan berhasil disimpan.');
+    }
+
     public function show(CombinedOrder $combinedOrder): Response
     {
         $actor = auth()->user();
@@ -214,6 +373,8 @@ class CombinedOrderController extends Controller
         $combinedOrder->load([
             'creator',
             'rentals.customer',
+            'rentals.returnRecord',
+            'rentals.latestExtension',
             'rentals.items.inventoryUnit.product',
             'rentals.payments.receiver',
             'sales.soldBy',
@@ -238,6 +399,11 @@ class CombinedOrderController extends Controller
                 'remaining_amount' => (string) $combinedOrder->remaining_amount,
                 'payment_status_label' => $this->combinedPaymentStatusLabel($combinedOrder->payment_status),
                 'notes' => $combinedOrder->notes,
+                'can_edit' => $rental !== null
+                    && in_array($rental->rental_status, [RentalStatuses::BOOKED, RentalStatuses::PICKED_UP, RentalStatuses::LATE], true)
+                    && $rental->returnRecord === null
+                    && $rental->latestExtension === null
+                    && $rental->payments->count() <= 1,
                 'payment_method' => [
                     'name' => $combinedOrder->payment_method_name_snapshot,
                     'type' => $combinedOrder->payment_method_type_snapshot,
@@ -300,6 +466,21 @@ class CombinedOrderController extends Controller
                 ] : null,
             ],
         ]);
+    }
+
+    public function sendInvoiceWhatsapp(CombinedOrder $combinedOrder): RedirectResponse
+    {
+        $actor = auth()->user();
+
+        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
+
+        try {
+            $this->whatsappService->sendCombinedOrderInvoice($combinedOrder);
+
+            return to_route('admin.combined-orders.show', $combinedOrder)->with('success', 'Invoice gabungan berhasil dikirim ke WhatsApp customer.');
+        } catch (\Throwable $exception) {
+            return to_route('admin.combined-orders.show', $combinedOrder)->with('error', $exception->getMessage());
+        }
     }
 
     /**

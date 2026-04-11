@@ -32,7 +32,7 @@ class WhatsappHistoryController extends Controller
         $invoiceFilters = $this->resolveFilters($request, 'invoice_');
 
         $reminderQuery = $this->buildReminderQuery($reminderFilters)->with(['rental.customer']);
-        $invoiceQuery = $this->buildInvoiceQuery($invoiceFilters)->with(['rental.customer']);
+        $invoiceQuery = $this->buildInvoiceQuery($invoiceFilters)->with(['rental.customer', 'rental.combinedOrder']);
 
         $paginatedReminders = (clone $reminderQuery)
             ->latest('scheduled_at')
@@ -151,7 +151,8 @@ class WhatsappHistoryController extends Controller
             'invoices' => WaLog::query()->where(function (Builder $query): void {
                 $query
                     ->where('message_type', 'like', 'rental_invoice%')
-                    ->orWhere('message_type', 'rental_extension_invoice_manual');
+                    ->orWhere('message_type', 'rental_extension_invoice_manual')
+                    ->orWhere('message_type', 'combined_order_invoice_manual');
             }),
             default => WaLog::query()->whereRaw('1 = 0'),
         };
@@ -170,6 +171,9 @@ class WhatsappHistoryController extends Controller
                         ->orWhereHas('rental', function (Builder $rentalQuery) use ($search): void {
                             $rentalQuery
                                 ->where('rental_no', 'like', '%'.$search.'%')
+                                ->orWhereHas('combinedOrder', function (Builder $combinedOrderQuery) use ($search): void {
+                                    $combinedOrderQuery->where('combined_no', 'like', '%'.$search.'%');
+                                })
                                 ->orWhereHas('customer', function (Builder $customerQuery) use ($search): void {
                                     $customerQuery
                                         ->where('name', 'like', '%'.$search.'%')
@@ -197,6 +201,8 @@ class WhatsappHistoryController extends Controller
             'id' => $log->id,
             'rental_id' => $log->rental_id,
             'rental_no' => $log->rental?->rental_no,
+            'combined_order_id' => $log->rental?->combined_order_id,
+            'combined_no' => $log->rental?->combinedOrder?->combined_no,
             'customer_name' => $log->rental?->customer?->name,
             'customer_phone' => $log->rental?->customer?->phone_whatsapp,
             'phone' => $log->phone,
@@ -246,6 +252,10 @@ class WhatsappHistoryController extends Controller
 
         if ($messageType === 'rental_extension_invoice_manual') {
             return 'Invoice Perpanjangan via WhatsApp';
+        }
+
+        if ($messageType === 'combined_order_invoice_manual') {
+            return 'Invoice Gabungan via WhatsApp';
         }
 
         if (str_starts_with($messageType, 'rental_invoice')) {

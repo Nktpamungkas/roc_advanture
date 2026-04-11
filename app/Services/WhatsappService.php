@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Http\Controllers\Admin\NotificationSettingController;
+use App\Models\CombinedOrder;
 use App\Models\Rental;
 use App\Models\RentalExtension;
 use App\Models\WaLog;
@@ -38,6 +39,32 @@ class WhatsappService
             phone: $phone,
             messageType: $messageType,
             message: $message,
+            scheduledAt: now(),
+        );
+    }
+
+    public function sendCombinedOrderInvoice(CombinedOrder $combinedOrder): WaLog
+    {
+        $combinedOrder->loadMissing([
+            'creator',
+            'rentals.customer',
+            'rentals.items.inventoryUnit',
+            'sales.items',
+        ]);
+
+        $rental = $combinedOrder->rentals->first();
+        if ($rental === null) {
+            throw new RuntimeException('Transaksi gabungan ini belum punya data rental yang bisa dikirim ke WhatsApp.');
+        }
+
+        $rental->setRelation('customer', $rental->customer);
+        $phone = $this->resolveRentalPhone($rental);
+
+        return $this->dispatchMessage(
+            rental: $rental,
+            phone: $phone,
+            messageType: 'combined_order_invoice_manual',
+            message: $this->buildCombinedOrderInvoiceMessage($combinedOrder),
             scheduledAt: now(),
         );
     }
@@ -273,6 +300,73 @@ class WhatsappService
             'Sisa Tagihan Terbaru: '.$this->formatCurrency($rental->remaining_amount),
             '',
             'Admin: '.($rental->creator?->name ?? '-'),
+            '',
+            'Roc Advanture',
+            'Jl. Raya Serang Km 16,8. Kp. Desa Talaga Rt 006/002, Cikupa, Tangerang',
+            'Telp: 0887-1711-042',
+        ];
+
+        return implode(PHP_EOL, $lines);
+    }
+
+    public function buildCombinedOrderInvoiceMessage(CombinedOrder $combinedOrder): string
+    {
+        $rental = $combinedOrder->rentals->first();
+        $sale = $combinedOrder->sales->first();
+
+        $lines = [
+            'Invoice Gabungan Roc Advanture',
+            'No Invoice: '.$combinedOrder->combined_no,
+            'Customer: '.($combinedOrder->customer_name ?? '-'),
+            'Tanggal Transaksi: '.$this->formatDateTime($combinedOrder->ordered_at),
+        ];
+
+        if ($rental !== null) {
+            $lines[] = 'Mulai Sewa: '.$this->formatDateTime($rental->starts_at);
+            $lines[] = 'Harus Kembali: '.$this->formatDateTime($rental->due_at);
+
+            if (filled($rental->guarantee_note)) {
+                $lines[] = 'Jaminan: '.$rental->guarantee_note;
+            }
+        }
+
+        if ($rental !== null) {
+            $lines = [
+                ...$lines,
+                '',
+                'Item Sewa:',
+                ...$this->buildRentalItemLines($rental),
+            ];
+        }
+
+        if ($sale !== null) {
+            $saleLines = $sale->items
+                ->map(fn ($item) => sprintf(
+                    '- %s%s | Qty %d',
+                    $item->product_name_snapshot,
+                    $item->sku_snapshot ? ' ('.$item->sku_snapshot.')' : '',
+                    $item->qty,
+                ))
+                ->all();
+
+            $lines = [
+                ...$lines,
+                '',
+                'Item Jual:',
+                ...$saleLines,
+            ];
+        }
+
+        $lines = [
+            ...$lines,
+            '',
+            'Total Sewa: '.$this->formatCurrency($combinedOrder->rental_total),
+            'Total Jual: '.$this->formatCurrency($combinedOrder->sale_total),
+            'Grand Total: '.$this->formatCurrency($combinedOrder->subtotal),
+            'Sudah Dibayar: '.$this->formatCurrency($combinedOrder->paid_amount),
+            'Sisa Tagihan: '.$this->formatCurrency($combinedOrder->remaining_amount),
+            '',
+            'Admin: '.($combinedOrder->creator?->name ?? '-'),
             '',
             'Roc Advanture',
             'Jl. Raya Serang Km 16,8. Kp. Desa Talaga Rt 006/002, Cikupa, Tangerang',
