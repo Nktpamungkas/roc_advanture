@@ -28,6 +28,7 @@ interface ReportSummary {
     combined_total: number;
     rental_total: number;
     sale_total: number;
+    manual_income_total: number;
     grand_total_amount: number;
     paid_total_amount: number;
     remaining_total_amount: number;
@@ -287,11 +288,12 @@ export default function CombinedReportsIndex({
                     </CardContent>
                 </Card>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <SummaryCard label="Total Transaksi" value={reportSummary.transactions_total} description="Semua transaksi yang lolos filter periode dan jenis transaksi." />
                     <SummaryCard label="Transaksi Gabungan" value={reportSummary.combined_total} description="Nota gabungan rental dan penjualan." />
                     <SummaryCard label="Transaksi Sewa" value={reportSummary.rental_total} description="Transaksi rental yang masih berdiri sendiri." />
                     <SummaryCard label="Transaksi Jual" value={reportSummary.sale_total} description="Transaksi penjualan yang masih berdiri sendiri." />
+                    <SummaryCard label="Pemasukan Manual" value={reportSummary.manual_income_total} description="Pemasukan yang dicatat di luar master sewa atau jual." />
                     <SummaryCard label="Omzet Total" value={formatCurrency(reportSummary.grand_total_amount)} description="Akumulasi total akhir dari seluruh transaksi terfilter." />
                     <SummaryCard label="Sisa Piutang" value={formatCurrency(reportSummary.remaining_total_amount)} description="Total sisa pembayaran yang belum lunas." />
                 </div>
@@ -455,7 +457,7 @@ function badgeVariantForSource(sourceType: string): 'default' | 'secondary' | 'o
         return 'default';
     }
 
-    if (sourceType === 'sale') {
+    if (sourceType === 'sale' || sourceType === 'manual_income') {
         return 'secondary';
     }
 

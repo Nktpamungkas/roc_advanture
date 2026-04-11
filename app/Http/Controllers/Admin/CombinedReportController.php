@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\CombinedOrder;
+use App\Models\ManualIncome;
 use App\Models\Rental;
 use App\Models\Sale;
 use App\Services\AdminAccessService;
+use App\Support\Finance\ManualIncomeCategories;
 use App\Support\Rental\PaymentMethods;
 use App\Support\Rental\RentalPaymentStatuses;
 use App\Support\Rental\RentalStatuses;
@@ -52,6 +54,7 @@ class CombinedReportController extends Controller
                 ['value' => 'combined', 'label' => 'Transaksi Gabungan'],
                 ['value' => 'rental', 'label' => 'Penyewaan'],
                 ['value' => 'sale', 'label' => 'Penjualan'],
+                ['value' => 'manual_income', 'label' => 'Pemasukan Manual'],
             ],
             'reportSummary' => $summary,
             'transactions' => $pagination->items(),
@@ -82,7 +85,7 @@ class CombinedReportController extends Controller
             'search' => trim((string) $request->input('search', '')),
             'date_from' => $dateFrom,
             'date_to' => $dateTo,
-            'transaction_type' => in_array($transactionType, ['all', 'combined', 'rental', 'sale'], true) ? $transactionType : 'all',
+            'transaction_type' => in_array($transactionType, ['all', 'combined', 'rental', 'sale', 'manual_income'], true) ? $transactionType : 'all',
             'per_page' => in_array($request->integer('per_page', 10), [10, 15, 25, 50], true)
                 ? $request->integer('per_page', 10)
                 : 10,
@@ -242,9 +245,46 @@ class CombinedReportController extends Controller
                 'detail_url' => route('admin.sales.show', $sale),
             ]);
 
+        $manualIncomeRows = ManualIncome::query()
+            ->with('recorder:id,name')
+            ->whereBetween('recorded_at', [$dateFrom, $dateTo])
+            ->when($search !== '', function ($query) use ($search): void {
+                $query->where(function ($nestedQuery) use ($search): void {
+                    $nestedQuery
+                        ->where('income_no', 'like', '%'.$search.'%')
+                        ->orWhere('title', 'like', '%'.$search.'%')
+                        ->orWhere('notes', 'like', '%'.$search.'%');
+                });
+            })
+            ->latest('recorded_at')
+            ->get()
+            ->map(fn (ManualIncome $manualIncome) => [
+                'id' => 'manual-income-'.$manualIncome->id,
+                'source_type' => 'manual_income',
+                'source_label' => 'Pemasukan Manual',
+                'reference_no' => $manualIncome->income_no,
+                'occurred_at' => $manualIncome->recorded_at?->toIso8601String(),
+                'customer_name' => null,
+                'customer_phone' => null,
+                'items_count' => 1,
+                'summary' => ManualIncomeCategories::label($manualIncome->category).': '.$manualIncome->title,
+                'rental_total' => '0',
+                'sale_total' => '0',
+                'total_amount' => (string) $manualIncome->amount,
+                'paid_amount' => (string) $manualIncome->amount,
+                'remaining_amount' => '0',
+                'payment_status_label' => 'Lunas',
+                'payment_method_label' => 'Manual',
+                'admin_name' => $manualIncome->recorder?->name,
+                'detail_url' => route('admin.manual-incomes.index', [
+                    'search' => $manualIncome->income_no,
+                ]),
+            ]);
+
         return $combinedOrders
             ->concat($rentalRows)
             ->concat($saleRows)
+            ->concat($manualIncomeRows)
             ->sortByDesc(fn (array $row) => $row['occurred_at'] ?? '')
             ->values();
     }
@@ -256,6 +296,7 @@ class CombinedReportController extends Controller
             'combined_total' => $transactions->where('source_type', 'combined')->count(),
             'rental_total' => $transactions->where('source_type', 'rental')->count(),
             'sale_total' => $transactions->where('source_type', 'sale')->count(),
+            'manual_income_total' => $transactions->where('source_type', 'manual_income')->count(),
             'grand_total_amount' => $transactions->sum(fn (array $row) => (float) $row['total_amount']),
             'paid_total_amount' => $transactions->sum(fn (array $row) => (float) $row['paid_amount']),
             'remaining_total_amount' => $transactions->sum(fn (array $row) => (float) $row['remaining_amount']),

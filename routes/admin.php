@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\CustomerController;
 use App\Http\Controllers\Admin\CombinedOrderController;
 use App\Http\Controllers\Admin\CombinedReportController;
 use App\Http\Controllers\Admin\InventoryUnitController;
+use App\Http\Controllers\Admin\ManualIncomeController;
 use App\Http\Controllers\Admin\NotificationSettingController;
 use App\Http\Controllers\Admin\PaymentMethodConfigController;
 use App\Http\Controllers\Admin\ProductController;
@@ -71,6 +72,8 @@ Route::middleware(['auth'])
         Route::post('rentals/{rental}/send-invoice-whatsapp', [RentalController::class, 'sendInvoiceWhatsapp'])->name('rentals.send-invoice-whatsapp');
         Route::get('stock-receipts', [StockReceiptController::class, 'index'])->name('stock-receipts.index');
         Route::post('stock-receipts', [StockReceiptController::class, 'store'])->name('stock-receipts.store');
+        Route::get('manual-incomes', [ManualIncomeController::class, 'index'])->name('manual-incomes.index');
+        Route::post('manual-incomes', [ManualIncomeController::class, 'store'])->name('manual-incomes.store');
         Route::get('stock-opname', [StockOpnameController::class, 'index'])->name('stock-opname.index');
         Route::post('stock-opname/sales', [StockOpnameController::class, 'storeSales'])->name('stock-opname.sales.store');
         Route::post('stock-opname/rentals', [StockOpnameController::class, 'storeRentals'])->name('stock-opname.rentals.store');
