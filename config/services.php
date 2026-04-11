@@ -55,4 +55,10 @@ return [
         'timeout' => (int) env('PDF_RENDER_TIMEOUT', 30),
     ],
 
+    'midtrans' => [
+        'client_key' => env('MIDTRANS_CLIENT_KEY'),
+        'server_key' => env('MIDTRANS_SERVER_KEY'),
+        'is_production' => filter_var(env('MIDTRANS_IS_PRODUCTION', false), FILTER_VALIDATE_BOOL),
+    ],
+
 ];

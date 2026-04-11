@@ -25,6 +25,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'role_or_permission' => RoleOrPermissionMiddleware::class,
         ]);
 
+        $middleware->validateCsrfTokens(except: [
+            'payment/webhook/midtrans',
+        ]);
+
         $middleware->web(append: [
             EnsureUserIsActive::class,
             HandleInertiaRequests::class,
