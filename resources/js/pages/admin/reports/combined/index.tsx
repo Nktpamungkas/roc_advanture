@@ -23,11 +23,6 @@ interface OptionItem {
     label: string;
 }
 
-interface ExportTarget {
-    value: string;
-    label: string;
-}
-
 interface ReportSummary {
     transactions_total: number;
     combined_total: number;
@@ -70,7 +65,7 @@ interface PaginationMeta {
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: '/dashboard' },
-    { title: 'Laporan Gabungan', href: '/admin/reports/combined' },
+    { title: 'Laporan Keuangan', href: '/admin/reports/financial' },
 ];
 
 const currencyFormatter = new Intl.NumberFormat('id-ID', {
@@ -87,14 +82,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat('id-ID', {
 export default function CombinedReportsIndex({
     combinedReportFilters,
     transactionTypeOptions,
-    exportTarget,
     reportSummary,
     transactions,
     transactionPagination,
 }: {
     combinedReportFilters: ReportFilters;
     transactionTypeOptions: OptionItem[];
-    exportTarget: ExportTarget;
     reportSummary: ReportSummary;
     transactions: ReportItem[];
     transactionPagination: PaginationMeta;
@@ -129,7 +122,7 @@ export default function CombinedReportsIndex({
         event.preventDefault();
 
         router.get(
-            route('admin.combined-reports.index'),
+            route('admin.financial-reports.index'),
             {
                 search: filterForm.data.search || undefined,
                 date_from: filterForm.data.date_from || undefined,
@@ -155,7 +148,7 @@ export default function CombinedReportsIndex({
         });
 
         router.get(
-            route('admin.combined-reports.index'),
+            route('admin.financial-reports.index'),
             {
                 date_from: combinedReportFilters.date_from,
                 date_to: combinedReportFilters.date_to,
@@ -172,7 +165,7 @@ export default function CombinedReportsIndex({
 
     const goToPage = (page: number) => {
         router.get(
-            route('admin.combined-reports.index'),
+            route('admin.financial-reports.index'),
             {
                 search: combinedReportFilters.search || undefined,
                 date_from: combinedReportFilters.date_from,
@@ -207,30 +200,22 @@ export default function CombinedReportsIndex({
 
     const formatCurrency = (value: string | number) => currencyFormatter.format(Number(value || 0));
     const formatDateTime = (value: string | null) => (value ? dateTimeFormatter.format(new Date(value)) : '-');
-    const buildExportUrl = (format: 'csv' | 'excel') =>
-        route('admin.combined-reports.export', {
-            format,
-            search: combinedReportFilters.search || undefined,
-            date_from: combinedReportFilters.date_from,
-            date_to: combinedReportFilters.date_to,
-            transaction_type: combinedReportFilters.transaction_type || undefined,
-        });
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Laporan Gabungan" />
+            <Head title="Laporan Keuangan" />
 
             <div className="space-y-6 p-4 md:p-6">
                 <div className="flex flex-col gap-2">
-                    <h1 className="text-2xl font-semibold tracking-tight">Laporan Gabungan</h1>
-                    <p className="text-muted-foreground text-sm">Laporan campuran untuk penyewaan, penjualan, dan transaksi gabungan dalam satu periode.</p>
+                    <h1 className="text-2xl font-semibold tracking-tight">Laporan Keuangan</h1>
+                    <p className="text-muted-foreground text-sm">Ringkasan pemasukan dari penyewaan, penjualan, dan transaksi gabungan dalam satu periode.</p>
                 </div>
 
                 {flash.success && <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">{flash.success}</div>}
 
                 <Card className="rounded-3xl">
                     <CardHeader>
-                        <CardTitle>Filter Laporan Gabungan</CardTitle>
+                        <CardTitle>Filter Laporan Keuangan</CardTitle>
                         <CardDescription>Atur periode dan jenis transaksi untuk membaca seluruh aktivitas bisnis dari satu halaman.</CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -302,31 +287,9 @@ export default function CombinedReportsIndex({
                     </CardContent>
                 </Card>
 
-                <Card className="rounded-3xl">
-                    <CardHeader>
-                        <CardTitle>Export Laporan Gabungan</CardTitle>
-                        <CardDescription>Unduh transaksi gabungan, rental, dan penjualan sesuai filter aktif dalam format CSV atau Excel.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-2xl border p-4">
-                                <p className="font-medium">{exportTarget.label}</p>
-                                <div className="mt-3 flex gap-2">
-                                    <Button asChild size="sm" variant="outline" className="flex-1">
-                                        <a href={buildExportUrl('csv')}>CSV</a>
-                                    </Button>
-                                    <Button asChild size="sm" className="flex-1">
-                                        <a href={buildExportUrl('excel')}>Excel</a>
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
                     <SummaryCard label="Total Transaksi" value={reportSummary.transactions_total} description="Semua transaksi yang lolos filter periode dan jenis transaksi." />
-                    <SummaryCard label="Transaksi Gabungan" value={reportSummary.combined_total} description="Nota gabungan rental + penjualan." />
+                    <SummaryCard label="Transaksi Gabungan" value={reportSummary.combined_total} description="Nota gabungan rental dan penjualan." />
                     <SummaryCard label="Transaksi Sewa" value={reportSummary.rental_total} description="Transaksi rental yang masih berdiri sendiri." />
                     <SummaryCard label="Transaksi Jual" value={reportSummary.sale_total} description="Transaksi penjualan yang masih berdiri sendiri." />
                     <SummaryCard label="Omzet Total" value={formatCurrency(reportSummary.grand_total_amount)} description="Akumulasi total akhir dari seluruh transaksi terfilter." />
@@ -335,8 +298,8 @@ export default function CombinedReportsIndex({
 
                 <Card className="rounded-3xl">
                     <CardHeader>
-                        <CardTitle>Daftar Transaksi Gabungan</CardTitle>
-                        <CardDescription>Lihat seluruh transaksi campuran dalam satu tabel. Nota gabungan akan tampil sebagai satu baris tersendiri.</CardDescription>
+                        <CardTitle>Daftar Transaksi Keuangan</CardTitle>
+                        <CardDescription>Lihat seluruh transaksi pemasukan dari sewa, jual, dan transaksi gabungan dalam satu tabel.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -422,7 +385,7 @@ export default function CombinedReportsIndex({
                                         ) : (
                                             <tr>
                                                 <td colSpan={10} className="text-muted-foreground px-4 py-6 text-center">
-                                                    Belum ada transaksi gabungan pada periode ini.
+                                                    Belum ada transaksi keuangan pada periode ini.
                                                 </td>
                                             </tr>
                                         )}

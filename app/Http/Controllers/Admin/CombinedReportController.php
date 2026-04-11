@@ -16,7 +16,6 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Inertia\Inertia;
 use Inertia\Response;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class CombinedReportController extends Controller
 {
@@ -54,10 +53,6 @@ class CombinedReportController extends Controller
                 ['value' => 'rental', 'label' => 'Penyewaan'],
                 ['value' => 'sale', 'label' => 'Penjualan'],
             ],
-            'exportTarget' => [
-                'value' => 'transactions',
-                'label' => 'Transaksi Gabungan',
-            ],
             'reportSummary' => $summary,
             'transactions' => $pagination->items(),
             'transactionPagination' => [
@@ -69,37 +64,6 @@ class CombinedReportController extends Controller
                 'to' => $pagination->lastItem(),
             ],
         ]);
-    }
-
-    public function export(Request $request): StreamedResponse
-    {
-        $actor = auth()->user();
-
-        abort_unless($actor !== null && $this->adminAccessService->canAccessBackOffice($actor), 403);
-
-        $filters = $this->resolveFilters($request);
-        $dateFrom = Carbon::parse($filters['date_from'])->startOfDay();
-        $dateTo = Carbon::parse($filters['date_to'])->endOfDay();
-        $format = in_array((string) $request->input('format', 'csv'), ['csv', 'excel'], true)
-            ? (string) $request->input('format', 'csv')
-            : 'csv';
-
-        $transactions = $this->buildTransactions($filters, $dateFrom, $dateTo);
-
-        if ($filters['transaction_type'] !== 'all') {
-            $transactions = $transactions
-                ->where('source_type', $filters['transaction_type'])
-                ->values();
-        }
-
-        [$headers, $rows, $filenamePrefix] = $this->buildExportRows($transactions);
-
-        return $this->streamExport(
-            $headers,
-            $rows,
-            sprintf('%s-%s-to-%s.%s', $filenamePrefix, $filters['date_from'], $filters['date_to'], $format === 'csv' ? 'csv' : 'xls'),
-            $format,
-        );
     }
 
     private function resolveFilters(Request $request): array
@@ -298,45 +262,6 @@ class CombinedReportController extends Controller
         ];
     }
 
-    private function buildExportRows(Collection $transactions): array
-    {
-        $rows = $transactions
-            ->map(fn (array $row) => [
-                $row['source_label'],
-                $row['reference_no'],
-                $row['occurred_at'] !== null ? Carbon::parse($row['occurred_at'])->format('Y-m-d H:i') : '-',
-                $row['customer_name'] ?? '-',
-                $row['customer_phone'] ?? '-',
-                $row['summary'],
-                (float) $row['rental_total'],
-                (float) $row['sale_total'],
-                (float) $row['total_amount'],
-                (float) $row['paid_amount'],
-                (float) $row['remaining_amount'],
-                $row['payment_status_label'],
-                $row['payment_method_label'],
-                $row['admin_name'] ?? '-',
-            ])
-            ->all();
-
-        return [[
-            'Jenis',
-            'Referensi',
-            'Waktu',
-            'Customer',
-            'No. WA',
-            'Ringkasan',
-            'Total Sewa',
-            'Total Jual',
-            'Total Akhir',
-            'Dibayar',
-            'Sisa',
-            'Status Bayar',
-            'Metode Pembayaran',
-            'Admin',
-        ], $rows, 'laporan-gabungan-transaksi'];
-    }
-
     private function countCombinedItems(CombinedOrder $combinedOrder): int
     {
         return $combinedOrder->rentals->sum(fn (Rental $rental) => $rental->items->count())
@@ -397,58 +322,6 @@ class CombinedReportController extends Controller
                 'pageName' => 'page',
             ],
         );
-    }
-
-    private function streamExport(array $headers, array $rows, string $filename, string $format): StreamedResponse
-    {
-        $separator = $format === 'csv' ? ',' : "\t";
-        $contentType = $format === 'csv'
-            ? 'text/csv; charset=UTF-8'
-            : 'application/vnd.ms-excel; charset=UTF-8';
-
-        return response()->streamDownload(function () use ($headers, $rows, $separator, $format): void {
-            $handle = fopen('php://output', 'wb');
-
-            if ($handle === false) {
-                return;
-            }
-
-            fwrite($handle, "\xEF\xBB\xBF");
-
-            if ($format === 'csv') {
-                fputcsv($handle, $headers, $separator);
-
-                foreach ($rows as $row) {
-                    fputcsv($handle, $this->normalizeExportRow($row), $separator);
-                }
-            } else {
-                fwrite($handle, implode($separator, array_map(fn (string $value) => $this->escapeExportValue($value), $headers)).PHP_EOL);
-
-                foreach ($rows as $row) {
-                    fwrite($handle, implode($separator, array_map(fn (string $value) => $this->escapeExportValue($value), $this->normalizeExportRow($row))).PHP_EOL);
-                }
-            }
-
-            fclose($handle);
-        }, $filename, [
-            'Content-Type' => $contentType,
-        ]);
-    }
-
-    private function normalizeExportRow(array $row): array
-    {
-        return array_map(function ($value): string {
-            if (is_bool($value)) {
-                return $value ? 'Ya' : 'Tidak';
-            }
-
-            return (string) $value;
-        }, $row);
-    }
-
-    private function escapeExportValue(string $value): string
-    {
-        return str_replace(["\r", "\n", "\t"], [' ', ' ', ' '], $value);
     }
 
     private function normalizeDate(string $value): ?string

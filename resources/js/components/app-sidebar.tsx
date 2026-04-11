@@ -3,7 +3,7 @@ import { NavUser } from '@/components/nav-user';
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { type NavGroup, type NavItem, type SharedData } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Archive, BarChart3, Bath, BellRing, CalendarDays, ClipboardList, CreditCard, FileText, LayoutGrid, Layers3, MessageSquare, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
+import { Archive, Bath, BellRing, CalendarDays, ClipboardList, CreditCard, FileText, LayoutGrid, Layers3, MessageSquare, Package, RotateCcw, ShoppingBag, Truck, Users } from 'lucide-react';
 import AppLogo from './app-logo';
 
 export function AppSidebar() {
@@ -76,19 +76,9 @@ export function AppSidebar() {
     const reportItems: NavItem[] = canManageUsers
         ? [
               {
-                  title: 'Laporan Gabungan',
-                  url: route('admin.combined-reports.index'),
+                  title: 'Laporan Keuangan',
+                  url: route('admin.financial-reports.index'),
                   icon: Layers3,
-              },
-              {
-                  title: 'Laporan Penyewaan',
-                  url: route('admin.rental-reports.index'),
-                  icon: BarChart3,
-              },
-              {
-                  title: 'Laporan Penjualan',
-                  url: route('admin.sales-reports.index'),
-                  icon: ShoppingBag,
               },
               {
                   title: 'History WhatsApp',
